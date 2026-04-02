@@ -27,6 +27,12 @@ function Assert-SafeTargetDirectory {
     return $fullPath
 }
 
+function Test-IsAdministrator {
+    $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [Security.Principal.WindowsPrincipal]::new($currentIdentity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
 function Invoke-DotNet {
     param(
         [Parameter(Mandatory = $true)][string[]]$Arguments,
@@ -62,6 +68,7 @@ $projectPath = Join-Path $repoRoot "src\FolderSync\FolderSync.csproj"
 $targetDir = Assert-SafeTargetDirectory -Path $TargetDir
 $publishDir = Join-Path ([System.IO.Path]::GetTempPath()) ("foldersync-publish-" + [guid]::NewGuid().ToString("N"))
 $wasRunning = $false
+$isAdministrator = Test-IsAdministrator
 
 try {
     if (-not (Test-Path $projectPath)) {
@@ -92,10 +99,19 @@ try {
     $service = Get-Service -Name $ServiceName -ErrorAction Stop
     $wasRunning = $service.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Running
 
+    if ($wasRunning -and -not $NoRestart -and -not $isAdministrator) {
+        throw "Deployment needs an elevated PowerShell session to stop and restart the '$ServiceName' service. Re-run this script as Administrator."
+    }
+
     if ($wasRunning -and $PSCmdlet.ShouldProcess($ServiceName, "Stop Windows service")) {
-        Write-Host "Stopping service $ServiceName..."
-        Stop-Service -Name $ServiceName -Force -ErrorAction Stop
-        $service.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(30))
+        try {
+            Write-Host "Stopping service $ServiceName..."
+            Stop-Service -Name $ServiceName -Force -ErrorAction Stop
+            $service.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(30))
+        }
+        catch {
+            throw "Failed to stop service '$ServiceName'. Re-run this script from an elevated PowerShell session. Original error: $($_.Exception.Message)"
+        }
     }
 
     if ($PSCmdlet.ShouldProcess($targetDir, "Copy published output")) {
@@ -104,8 +120,13 @@ try {
     }
 
     if (-not $NoRestart -and $wasRunning -and $PSCmdlet.ShouldProcess($ServiceName, "Start Windows service")) {
-        Write-Host "Starting service $ServiceName..."
-        Start-Service -Name $ServiceName -ErrorAction Stop
+        try {
+            Write-Host "Starting service $ServiceName..."
+            Start-Service -Name $ServiceName -ErrorAction Stop
+        }
+        catch {
+            throw "Deployment copied files but failed to restart service '$ServiceName'. Start it manually from an elevated PowerShell session. Original error: $($_.Exception.Message)"
+        }
     }
 
     Write-Host "Deployment completed successfully."
