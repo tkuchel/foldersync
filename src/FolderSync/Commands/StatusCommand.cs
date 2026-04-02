@@ -234,6 +234,13 @@ public static class StatusCommand
         else
             Console.WriteLine("Control: active");
 
+        var pausedProfiles = report.Control?.Profiles
+            .Where(profile => profile.IsPaused)
+            .Select(profile => $"{profile.Name} ({profile.Reason ?? "no reason"})")
+            .ToList();
+        if (pausedProfiles is { Count: > 0 })
+            Console.WriteLine($"Paused profiles: {string.Join(", ", pausedProfiles)}");
+
         if (report.Profiles.Count > 0)
             Console.WriteLine($"Profiles: {string.Join(", ", report.Profiles)}");
 
@@ -405,6 +412,8 @@ public static class StatusCommand
             Console.WriteLine($"Profile {profile.Name}:");
             Console.WriteLine(
                 $"  state={profile.State}, processed={profile.ProcessedCount}, succeeded={profile.SucceededCount}, skipped={profile.SkippedCount}, failed={profile.FailedCount}, overflows={profile.WatcherOverflowCount}");
+            if (profile.IsPaused)
+                Console.WriteLine($"  pause={profile.PauseReason ?? "Paused by operator"}");
             if (!string.IsNullOrWhiteSpace(profile.AlertMessage))
                 Console.WriteLine($"  alert={profile.AlertLevel}: {profile.AlertMessage}");
 

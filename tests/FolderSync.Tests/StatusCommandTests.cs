@@ -193,6 +193,8 @@ public sealed class StatusCommandTests
                     {
                         Name = "alpha",
                         State = "Running",
+                        IsPaused = true,
+                        PauseReason = "Index rebuild",
                         ProcessedCount = 9,
                         FailedCount = 1,
                         WatcherOverflowCount = 2,
@@ -214,6 +216,7 @@ public sealed class StatusCommandTests
         Assert.Contains("\"AlertLevel\":\"warning\"", json);
         Assert.Contains("\"IsPaused\":true", json);
         Assert.Contains("\"PauseReason\":\"Maintenance window\"", json);
+        Assert.Contains("\"PauseReason\":\"Index rebuild\"", json);
     }
 
     [Fact]
@@ -236,6 +239,41 @@ public sealed class StatusCommandTests
             Assert.NotNull(control);
             Assert.True(control!.IsPaused);
             Assert.Equal("Maintenance window", control.Reason);
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TryReadRuntimeControlSnapshot_Reads_Profile_Pause_State()
+    {
+        var tempDir = Directory.CreateTempSubdirectory();
+        try
+        {
+            var path = Path.Combine(tempDir.FullName, "foldersync-control.json");
+            File.WriteAllText(path, """
+            {
+              "isPaused": false,
+              "profiles": [
+                {
+                  "name": "alpha",
+                  "isPaused": true,
+                  "reason": "Index rebuild",
+                  "changedAtUtc": "2026-04-02T10:02:00+00:00"
+                }
+              ]
+            }
+            """);
+
+            var control = StatusCommand.TryReadRuntimeControlSnapshot(path);
+
+            Assert.NotNull(control);
+            var profile = Assert.Single(control!.Profiles);
+            Assert.Equal("alpha", profile.Name);
+            Assert.True(profile.IsPaused);
+            Assert.Equal("Index rebuild", profile.Reason);
         }
         finally
         {

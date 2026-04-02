@@ -21,6 +21,9 @@ public static class HealthCommand
     {
         public required string Name { get; init; }
         public required string State { get; init; }
+        public bool IsPaused { get; init; }
+        public string? PauseReason { get; init; }
+        public DateTimeOffset? PausedAtUtc { get; init; }
         public long ProcessedCount { get; init; }
         public long FailedCount { get; init; }
         public long WatcherOverflowCount { get; init; }
@@ -106,6 +109,9 @@ public static class HealthCommand
             {
                 Name = profile.Name,
                 State = profile.State,
+                IsPaused = profile.IsPaused,
+                PauseReason = profile.PauseReason,
+                PausedAtUtc = profile.PausedAtUtc,
                 ProcessedCount = profile.ProcessedCount,
                 FailedCount = profile.FailedCount,
                 WatcherOverflowCount = profile.WatcherOverflowCount,

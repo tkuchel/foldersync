@@ -9,6 +9,7 @@ public interface IRuntimeControlStore
     string ControlPath { get; }
     RuntimeControlSnapshot Read();
     void SetPaused(bool paused, string? reason = null);
+    void SetProfilePaused(string profileName, bool paused, string? reason = null);
 }
 
 public sealed class RuntimeControlStore : IRuntimeControlStore
@@ -51,13 +52,50 @@ public sealed class RuntimeControlStore : IRuntimeControlStore
 
     public void SetPaused(bool paused, string? reason = null)
     {
-        var snapshot = new RuntimeControlSnapshot
-        {
-            IsPaused = paused,
-            Reason = paused ? reason : null,
-            ChangedAtUtc = _clock.UtcNow
-        };
+        var snapshot = Read();
+        snapshot.IsPaused = paused;
+        snapshot.Reason = paused ? reason : null;
+        snapshot.ChangedAtUtc = _clock.UtcNow;
+        Persist(snapshot);
+    }
 
+    public void SetProfilePaused(string profileName, bool paused, string? reason = null)
+    {
+        if (string.IsNullOrWhiteSpace(profileName))
+            throw new ArgumentException("Profile name is required.", nameof(profileName));
+
+        var snapshot = Read();
+        var profile = snapshot.Profiles.FirstOrDefault(existing =>
+            string.Equals(existing.Name, profileName, StringComparison.OrdinalIgnoreCase));
+
+        if (paused)
+        {
+            profile ??= CreateProfile(profileName, snapshot);
+            profile.IsPaused = true;
+            profile.Reason = reason;
+            profile.ChangedAtUtc = _clock.UtcNow;
+        }
+        else if (profile is not null)
+        {
+            snapshot.Profiles.Remove(profile);
+        }
+
+        Persist(snapshot);
+    }
+
+    private static ProfileRuntimeControlSnapshot CreateProfile(string profileName, RuntimeControlSnapshot snapshot)
+    {
+        var profile = new ProfileRuntimeControlSnapshot
+        {
+            Name = profileName,
+            IsPaused = false
+        };
+        snapshot.Profiles.Add(profile);
+        return profile;
+    }
+
+    private void Persist(RuntimeControlSnapshot snapshot)
+    {
         var directory = Path.GetDirectoryName(ControlPath);
         if (!string.IsNullOrWhiteSpace(directory))
             Directory.CreateDirectory(directory);

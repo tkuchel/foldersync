@@ -13,6 +13,7 @@ public interface IRuntimeHealthStore
     void RecordServiceStopped();
     void RecordServiceError(string message);
     void RecordPauseState(bool paused, string? reason, DateTimeOffset? changedAtUtc);
+    void RecordProfilePauseState(string profileName, bool paused, string? reason, DateTimeOffset? changedAtUtc);
     void RecordProfileState(string profileName, string state);
     void RecordWatcherOverflow(string profileName);
     void RecordSyncResult(string profileName, SyncResult result);
@@ -130,6 +131,18 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
         }
     }
 
+    public void RecordProfilePauseState(string profileName, bool paused, string? reason, DateTimeOffset? changedAtUtc)
+    {
+        lock (_gate)
+        {
+            var profile = GetProfile(profileName);
+            profile.IsPaused = paused;
+            profile.PauseReason = paused ? reason : null;
+            profile.PausedAtUtc = paused ? changedAtUtc ?? _clock.UtcNow : null;
+            PersistLocked();
+        }
+    }
+
     public void RecordWatcherOverflow(string profileName)
     {
         lock (_gate)
@@ -137,6 +150,12 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
             var profile = GetProfile(profileName);
             profile.WatcherOverflowCount++;
             profile.ConsecutiveOverflowCount++;
+            profile.AddActivity(new ProfileActivitySnapshot
+            {
+                Kind = "overflow",
+                Summary = "Watcher overflow triggered reconciliation",
+                TimestampUtc = _clock.UtcNow
+            });
             UpdateAlertState(profile);
             PersistLocked();
         }
@@ -172,6 +191,7 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
             if (!result.IsSkipped || result.Success)
                 profile.ConsecutiveOverflowCount = 0;
 
+            profile.AddActivity(CreateSyncActivity(result));
             UpdateAlertState(profile);
 
             PersistLocked();
@@ -182,9 +202,17 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
     {
         lock (_gate)
         {
-            var reconciliation = GetProfile(profileName).Reconciliation;
+            var profile = GetProfile(profileName);
+            var reconciliation = profile.Reconciliation;
             reconciliation.LastTrigger = trigger;
             reconciliation.LastStartedAtUtc = _clock.UtcNow;
+            profile.AddActivity(new ProfileActivitySnapshot
+            {
+                Kind = "reconcile",
+                Summary = $"Reconciliation started ({trigger})",
+                TimestampUtc = _clock.UtcNow,
+                Details = trigger
+            });
             PersistLocked();
         }
     }
@@ -193,7 +221,8 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
     {
         lock (_gate)
         {
-            var reconciliation = GetProfile(profileName).Reconciliation;
+            var profile = GetProfile(profileName);
+            var reconciliation = profile.Reconciliation;
             reconciliation.RunCount++;
             reconciliation.LastTrigger = trigger;
             reconciliation.LastCompletedAtUtc = _clock.UtcNow;
@@ -202,8 +231,49 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
             reconciliation.LastExitCode = result.ExitCode;
             reconciliation.LastExitDescription = result.ExitDescription;
             reconciliation.LastSummary = result.Summary;
+            profile.AddActivity(new ProfileActivitySnapshot
+            {
+                Kind = "reconcile",
+                Summary = result.Success
+                    ? $"Reconciliation completed ({result.ExitCode})"
+                    : $"Reconciliation failed ({result.ExitCode})",
+                TimestampUtc = _clock.UtcNow,
+                Details = result.ExitDescription
+            });
             PersistLocked();
         }
+    }
+
+    private ProfileActivitySnapshot CreateSyncActivity(SyncResult result)
+    {
+        var relativePath = TryGetRelativePath(result.WorkItem);
+        var kind = result.Success
+            ? result.IsSkipped ? "skip" : "sync"
+            : "failure";
+
+        var summary = kind switch
+        {
+            "sync" => $"Synced {relativePath ?? result.WorkItem.SourcePath}",
+            "skip" => $"Skipped {relativePath ?? result.WorkItem.SourcePath}",
+            _ => $"Failed {relativePath ?? result.WorkItem.SourcePath}"
+        };
+
+        return new ProfileActivitySnapshot
+        {
+            Kind = kind,
+            Summary = summary,
+            TimestampUtc = _clock.UtcNow,
+            RelativePath = relativePath,
+            Details = result.ErrorMessage
+        };
+    }
+
+    private static string? TryGetRelativePath(SyncWorkItem workItem)
+    {
+        if (!string.IsNullOrWhiteSpace(workItem.SourcePath))
+            return Path.GetFileName(workItem.SourcePath);
+
+        return null;
     }
 
     private ProfileHealthSnapshot GetProfile(string profileName)

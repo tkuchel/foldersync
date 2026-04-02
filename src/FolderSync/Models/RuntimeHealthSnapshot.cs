@@ -15,8 +15,13 @@ public sealed class RuntimeHealthSnapshot
 
 public sealed class ProfileHealthSnapshot
 {
+    private const int MaxRecentActivities = 12;
+
     public required string Name { get; init; }
     public string State { get; set; } = "Starting";
+    public bool IsPaused { get; set; }
+    public string? PauseReason { get; set; }
+    public DateTimeOffset? PausedAtUtc { get; set; }
     public long ProcessedCount { get; set; }
     public long SucceededCount { get; set; }
     public long SkippedCount { get; set; }
@@ -31,6 +36,14 @@ public sealed class ProfileHealthSnapshot
     public string? AlertMessage { get; set; }
     public DateTimeOffset? LastAlertUtc { get; set; }
     public ReconciliationHealthSnapshot Reconciliation { get; init; } = new();
+    public List<ProfileActivitySnapshot> RecentActivities { get; init; } = [];
+
+    public void AddActivity(ProfileActivitySnapshot activity)
+    {
+        RecentActivities.Insert(0, activity);
+        if (RecentActivities.Count > MaxRecentActivities)
+            RecentActivities.RemoveRange(MaxRecentActivities, RecentActivities.Count - MaxRecentActivities);
+    }
 }
 
 public sealed class ReconciliationHealthSnapshot
@@ -57,4 +70,13 @@ public sealed class RobocopySummarySnapshot
     public int? FilesSkipped { get; set; }
     public int? FilesExtras { get; set; }
     public int? FilesFailed { get; set; }
+}
+
+public sealed class ProfileActivitySnapshot
+{
+    public required string Kind { get; init; }
+    public required string Summary { get; init; }
+    public DateTimeOffset TimestampUtc { get; init; }
+    public string? RelativePath { get; init; }
+    public string? Details { get; init; }
 }

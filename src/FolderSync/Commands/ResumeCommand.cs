@@ -16,21 +16,26 @@ public static class ResumeCommand
         };
 
         var command = new Command("resume", "Resume FolderSync processing");
+        var profileOption = new Option<string?>("--profile")
+        {
+            Description = "Optional profile name to resume without resuming the whole service"
+        };
         command.Options.Add(nameOption);
+        command.Options.Add(profileOption);
 
         command.SetAction(parseResult =>
         {
             if (!CommandPlatformGuard.EnsureWindows("resume"))
                 return;
 
-            Execute(parseResult.GetValue(nameOption)!);
+            Execute(parseResult.GetValue(nameOption)!, parseResult.GetValue(profileOption));
         });
 
         return command;
     }
 
     [SupportedOSPlatform("windows")]
-    private static void Execute(string serviceName)
+    private static void Execute(string serviceName, string? profileName)
     {
         if (!PauseCommand.TryResolveInstallDirectory(serviceName, out var installDir, out var error))
         {
@@ -45,7 +50,10 @@ public static class ResumeCommand
 
         try
         {
-            controlStore.SetPaused(false);
+            if (string.IsNullOrWhiteSpace(profileName))
+                controlStore.SetPaused(false);
+            else
+                controlStore.SetProfilePaused(profileName, false);
         }
         catch (UnauthorizedAccessException)
         {
@@ -54,6 +62,9 @@ public static class ResumeCommand
             return;
         }
 
-        Console.WriteLine($"Resumed FolderSync at {installDir}");
+        if (string.IsNullOrWhiteSpace(profileName))
+            Console.WriteLine($"Resumed FolderSync at {installDir}");
+        else
+            Console.WriteLine($"Resumed profile '{profileName}' at {installDir}");
     }
 }
