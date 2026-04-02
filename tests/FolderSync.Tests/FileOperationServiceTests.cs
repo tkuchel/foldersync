@@ -8,12 +8,15 @@ namespace FolderSync.Tests;
 public sealed class FileOperationServiceTests : IDisposable
 {
     private readonly string _tempDir;
+    private readonly string _sourceRoot;
     private readonly string _destinationRoot;
 
     public FileOperationServiceTests()
     {
         _tempDir = Path.Combine(Path.GetTempPath(), $"foldersync-fileops-{Guid.NewGuid():N}");
+        _sourceRoot = Path.Combine(_tempDir, "source");
         _destinationRoot = Path.Combine(_tempDir, "dest");
+        Directory.CreateDirectory(_sourceRoot);
         Directory.CreateDirectory(_destinationRoot);
     }
 
@@ -65,11 +68,57 @@ public sealed class FileOperationServiceTests : IDisposable
             service.DeleteOrArchiveAsync(target, "file.txt", testToken));
     }
 
+    [Fact]
+    public async Task CopyFileAsync_CopiesFileAndPreservesLastWriteTime()
+    {
+        var testToken = TestContext.Current.CancellationToken;
+        var source = Path.Combine(_sourceRoot, "nested", "source.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(source)!);
+        await File.WriteAllTextAsync(source, "copied content", testToken);
+        var expectedTimestamp = new DateTime(2026, 4, 2, 8, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(source, expectedTimestamp);
+
+        var destination = Path.Combine(_destinationRoot, "nested", "source.txt");
+        var service = CreateService();
+
+        await service.CopyFileAsync(source, destination, testToken);
+
+        Assert.True(File.Exists(destination));
+        Assert.Equal("copied content", await File.ReadAllTextAsync(destination, testToken));
+        Assert.Equal(expectedTimestamp, File.GetLastWriteTimeUtc(destination));
+    }
+
+    [Fact]
+    public async Task DeleteOrArchiveAsync_ArchivesFileUnderDeletedFolder()
+    {
+        var testToken = TestContext.Current.CancellationToken;
+        var target = Path.Combine(_destinationRoot, "docs", "report.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        await File.WriteAllTextAsync(target, "to archive", testToken);
+
+        var service = CreateService(syncDeletions: true, configure: o =>
+        {
+            o.DeleteMode = DeleteMode.Archive;
+            o.DeleteArchivePath = string.Empty;
+        });
+
+        await service.DeleteOrArchiveAsync(target, Path.Combine("docs", "report.txt"), testToken);
+
+        Assert.False(File.Exists(target));
+
+        var archiveDir = Path.Combine(_destinationRoot, ".deleted", "docs");
+        Assert.True(Directory.Exists(archiveDir));
+
+        var archivedFile = Directory.GetFiles(archiveDir, "report (deleted *).txt").Single();
+        Assert.Equal("to archive", await File.ReadAllTextAsync(archivedFile, testToken));
+    }
+
     private FileOperationService CreateService(
         bool syncDeletions = false,
         Action<SyncOptions>? configure = null)
     {
         var options = TestOptions.Create(
+            sourcePath: _sourceRoot,
             destinationPath: _destinationRoot,
             configure: o =>
             {
