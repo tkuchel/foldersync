@@ -15,23 +15,29 @@ public interface IWatcherService : IDisposable
 public sealed class WatcherService : IWatcherService
 {
     private readonly SyncOptions _options;
+    private readonly string _profileName;
     private readonly IPathMappingService _pathMapping;
     private readonly IPathSafetyService _pathSafety;
+    private readonly IRuntimeHealthStore _healthStore;
     private readonly IClock _clock;
     private readonly ILogger<WatcherService> _logger;
     private FileSystemWatcher? _watcher;
     private ChannelWriter<WatcherEvent>? _channel;
 
     public WatcherService(
+        string profileName,
         IOptions<SyncOptions> options,
         IPathMappingService pathMapping,
         IPathSafetyService pathSafety,
+        IRuntimeHealthStore healthStore,
         IClock clock,
         ILogger<WatcherService> logger)
     {
+        _profileName = profileName;
         _options = options.Value;
         _pathMapping = pathMapping;
         _pathSafety = pathSafety;
+        _healthStore = healthStore;
         _clock = clock;
         _logger = logger;
     }
@@ -126,6 +132,7 @@ public sealed class WatcherService : IWatcherService
             FullPath = _options.SourcePath,
             Timestamp = _clock.UtcNow
         });
+        _healthStore.RecordWatcherOverflow(_profileName);
 
         // Restart the watcher
         try
@@ -180,6 +187,7 @@ public sealed class WatcherService : IWatcherService
                 FullPath = _options.SourcePath,
                 Timestamp = _clock.UtcNow
             });
+            _healthStore.RecordWatcherOverflow(_profileName);
         }
     }
 

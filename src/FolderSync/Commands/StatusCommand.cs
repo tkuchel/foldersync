@@ -3,11 +3,17 @@ using System.CommandLine;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using FolderSync.Models;
 
 namespace FolderSync.Commands;
 
 public static class StatusCommand
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     internal sealed record RecentActivitySummary(
         string? LastReconcile,
         string? LastSync,
@@ -139,6 +145,9 @@ public static class StatusCommand
 
         var logsDir = Path.Combine(installDir, "logs");
         Console.WriteLine($"Logs:    {(Directory.Exists(logsDir) ? logsDir : "missing")}");
+
+        var healthPath = Path.Combine(installDir, "foldersync-health.json");
+        PrintRuntimeMetrics(healthPath);
 
         if (!Directory.Exists(logsDir))
             return;
@@ -302,6 +311,61 @@ public static class StatusCommand
     private static bool ContainsAny(string line, params string[] patterns)
     {
         return patterns.Any(pattern => line.Contains(pattern, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static void PrintRuntimeMetrics(string healthPath)
+    {
+        var snapshot = TryReadRuntimeHealthSnapshot(healthPath);
+        if (snapshot is null)
+            return;
+
+        Console.WriteLine($"Runtime: {snapshot.ServiceState} (updated {snapshot.UpdatedAtUtc.LocalDateTime})");
+
+        foreach (var profile in snapshot.Profiles.OrderBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            Console.WriteLine($"Profile {profile.Name}:");
+            Console.WriteLine(
+                $"  state={profile.State}, processed={profile.ProcessedCount}, succeeded={profile.SucceededCount}, skipped={profile.SkippedCount}, failed={profile.FailedCount}, overflows={profile.WatcherOverflowCount}");
+
+            if (profile.LastSuccessfulSyncUtc is not null)
+                Console.WriteLine($"  last sync={profile.LastSuccessfulSyncUtc.Value.LocalDateTime}");
+            if (profile.LastFailedSyncUtc is not null)
+                Console.WriteLine($"  last failure={profile.LastFailedSyncUtc.Value.LocalDateTime}: {profile.LastFailure}");
+
+            if (profile.Reconciliation.RunCount > 0)
+            {
+                var reconciliation = profile.Reconciliation;
+                var status = reconciliation.LastSuccess is true ? "success" : "failure";
+                var duration = reconciliation.LastDurationMs is null
+                    ? "n/a"
+                    : $"{TimeSpan.FromMilliseconds(reconciliation.LastDurationMs.Value).TotalSeconds:F1}s";
+                Console.WriteLine(
+                    $"  reconcile={status}, runs={reconciliation.RunCount}, trigger={reconciliation.LastTrigger}, exit={reconciliation.LastExitCode}, duration={duration}");
+                if (reconciliation.LastCompletedAtUtc is not null)
+                    Console.WriteLine($"  last reconcile={reconciliation.LastCompletedAtUtc.Value.LocalDateTime}");
+            }
+        }
+    }
+
+    internal static RuntimeHealthSnapshot? TryReadRuntimeHealthSnapshot(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+                return null;
+
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+
+            return JsonSerializer.Deserialize<RuntimeHealthSnapshot>(stream, JsonOptions);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     internal static RecentActivitySummary SummarizeRecentActivity(IEnumerable<string> logLines)

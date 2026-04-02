@@ -8,7 +8,7 @@ namespace FolderSync.Services;
 
 public interface IReconciliationService
 {
-    Task RunReconciliationAsync(CancellationToken cancellationToken = default);
+    Task RunReconciliationAsync(string trigger, CancellationToken cancellationToken = default);
     Task SchedulePeriodicAsync(ChannelWriter<WatcherEvent> eventChannel, CancellationToken cancellationToken);
 }
 
@@ -16,22 +16,28 @@ public sealed class ReconciliationService : IReconciliationService
 {
     private readonly IRobocopyService _robocopy;
     private readonly ReconciliationOptions _options;
+    private readonly string _profileName;
+    private readonly IRuntimeHealthStore _healthStore;
     private readonly IClock _clock;
     private readonly ILogger<ReconciliationService> _logger;
 
     public ReconciliationService(
+        string profileName,
         IRobocopyService robocopy,
         IOptions<SyncOptions> options,
+        IRuntimeHealthStore healthStore,
         IClock clock,
         ILogger<ReconciliationService> logger)
     {
+        _profileName = profileName;
         _robocopy = robocopy;
         _options = options.Value.Reconciliation;
+        _healthStore = healthStore;
         _clock = clock;
         _logger = logger;
     }
 
-    public async Task RunReconciliationAsync(CancellationToken cancellationToken = default)
+    public async Task RunReconciliationAsync(string trigger, CancellationToken cancellationToken = default)
     {
         if (!_options.Enabled || !_options.UseRobocopy)
         {
@@ -39,8 +45,12 @@ public sealed class ReconciliationService : IReconciliationService
             return;
         }
 
+        var startedAt = _clock.UtcNow;
+        _healthStore.RecordReconciliationStarted(_profileName, trigger);
         _logger.LogInformation("Starting reconciliation...");
         var result = await _robocopy.ReconcileAsync(cancellationToken);
+        var duration = _clock.UtcNow - startedAt;
+        _healthStore.RecordReconciliationCompleted(_profileName, trigger, result.Success, result.ExitCode, duration);
 
         if (result.Success)
         {

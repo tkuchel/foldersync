@@ -73,6 +73,7 @@ public static class HostBuilderHelper
         builder.Services.AddSingleton<IFileHasher, Sha256FileHasher>();
         builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
         builder.Services.AddSingleton<IPathSafetyService, PathSafetyService>();
+        builder.Services.AddSingleton<IRuntimeHealthStore, RuntimeHealthStore>();
 
         // Hosted service
         builder.Services.AddHostedService<FolderSyncService>();

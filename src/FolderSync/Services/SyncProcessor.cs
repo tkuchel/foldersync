@@ -55,7 +55,7 @@ public sealed class SyncProcessor : ISyncProcessor
                 WatcherChangeKind.Renamed =>
                     await ProcessRenameAsync(workItem, cancellationToken),
 
-                _ => new SyncResult(true, workItem, sw.Elapsed, $"No action for {workItem.Kind}")
+                _ => new SyncResult(true, workItem, sw.Elapsed, $"No action for {workItem.Kind}", IsSkipped: true)
             };
 
             return result with { Duration = sw.Elapsed };
@@ -76,7 +76,7 @@ public sealed class SyncProcessor : ISyncProcessor
         if (_pathSafety.IsReparsePoint(workItem.SourcePath))
         {
             _logger.LogWarning("Skipping reparse point at {Path}", workItem.SourcePath);
-            return new SyncResult(true, workItem, TimeSpan.Zero, "Skipped reparse point");
+            return new SyncResult(true, workItem, TimeSpan.Zero, "Skipped reparse point", IsSkipped: true);
         }
 
         // Handle directory creation
@@ -90,7 +90,7 @@ public sealed class SyncProcessor : ISyncProcessor
         if (!await _stabilityChecker.WaitForFileReadyAsync(workItem.SourcePath, ct))
         {
             _logger.LogWarning("File not stable, skipping: {Path}", workItem.SourcePath);
-            return new SyncResult(false, workItem, TimeSpan.Zero, "File not stable");
+            return new SyncResult(false, workItem, TimeSpan.Zero, "File not stable", IsSkipped: true);
         }
 
         // Compare source and destination
@@ -99,7 +99,7 @@ public sealed class SyncProcessor : ISyncProcessor
         if (comparison == FileComparisonResult.Same)
         {
             _logger.LogDebug("Skipped unchanged file: {Path}", workItem.SourcePath);
-            return new SyncResult(true, workItem, TimeSpan.Zero, "Unchanged");
+            return new SyncResult(true, workItem, TimeSpan.Zero, "Unchanged", IsSkipped: true);
         }
 
         // Resolve conflicts
@@ -108,7 +108,7 @@ public sealed class SyncProcessor : ISyncProcessor
         if (!resolution.ShouldProceed)
         {
             _logger.LogInformation("Skipped {Path}: {Reason}", workItem.SourcePath, resolution.Reason);
-            return new SyncResult(true, workItem, TimeSpan.Zero, resolution.Reason);
+            return new SyncResult(true, workItem, TimeSpan.Zero, resolution.Reason, IsSkipped: true);
         }
 
         // Perform copy
@@ -138,7 +138,7 @@ public sealed class SyncProcessor : ISyncProcessor
         if (_pathSafety.IsReparsePoint(workItem.SourcePath))
         {
             _logger.LogWarning("Skipping reparse point rename at {Path}", workItem.SourcePath);
-            return new SyncResult(true, workItem, TimeSpan.Zero, "Skipped reparse point");
+            return new SyncResult(true, workItem, TimeSpan.Zero, "Skipped reparse point", IsSkipped: true);
         }
 
         // Wait for stability of the new file

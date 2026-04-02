@@ -1,4 +1,5 @@
 using FolderSync.Commands;
+using FolderSync.Models;
 
 namespace FolderSync.Tests;
 
@@ -39,5 +40,58 @@ public sealed class StatusCommandTests
 
         Assert.Equal(lines[1], summary.LastWarning);
         Assert.Null(summary.LastError);
+    }
+
+    [Fact]
+    public void TryReadRuntimeHealthSnapshot_Reads_Shared_Health_File()
+    {
+        var tempDir = Directory.CreateTempSubdirectory();
+        try
+        {
+            var path = Path.Combine(tempDir.FullName, "foldersync-health.json");
+            File.WriteAllText(
+                path,
+                """
+                {
+                  "serviceName": "FolderSync",
+                  "serviceState": "Running",
+                  "startedAtUtc": "2026-04-02T10:00:00+00:00",
+                  "updatedAtUtc": "2026-04-02T10:05:00+00:00",
+                  "profiles": [
+                    {
+                      "name": "alpha",
+                      "state": "Running",
+                      "processedCount": 9,
+                      "succeededCount": 8,
+                      "skippedCount": 2,
+                      "failedCount": 1,
+                      "watcherOverflowCount": 0,
+                      "reconciliation": {
+                        "runCount": 3,
+                        "lastTrigger": "Overflow",
+                        "lastSuccess": true,
+                        "lastExitCode": 2
+                      }
+                    }
+                  ]
+                }
+                """);
+
+            var snapshot = StatusCommand.TryReadRuntimeHealthSnapshot(path);
+
+            Assert.NotNull(snapshot);
+            Assert.Equal("Running", snapshot!.ServiceState);
+            var profile = Assert.Single(snapshot.Profiles);
+            Assert.Equal("alpha", profile.Name);
+            Assert.Equal(9, profile.ProcessedCount);
+            Assert.Equal(3, profile.Reconciliation.RunCount);
+            Assert.Equal("Overflow", profile.Reconciliation.LastTrigger);
+            Assert.True(profile.Reconciliation.LastSuccess);
+            Assert.Equal(2, profile.Reconciliation.LastExitCode);
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
     }
 }

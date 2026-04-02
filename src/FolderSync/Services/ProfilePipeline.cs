@@ -15,6 +15,7 @@ public sealed class ProfilePipeline : IDisposable
     private readonly string _profileName;
     private readonly SyncOptions _options;
     private readonly ILogger _logger;
+    private readonly IRuntimeHealthStore _healthStore;
 
     // Per-profile services
     private readonly WatcherService _watcher;
@@ -39,12 +40,14 @@ public sealed class ProfilePipeline : IDisposable
         IClock clock,
         IFileHasher fileHasher,
         IProcessRunner processRunner,
+        IRuntimeHealthStore healthStore,
         ILoggerFactory loggerFactory)
     {
         _profileName = profileName;
         _options = options;
 
         _logger = loggerFactory.CreateLogger($"FolderSync.Profile.{profileName}");
+        _healthStore = healthStore;
 
         // Create per-profile service instances using Options.Create for isolation
         var opts = Options.Create(options);
@@ -58,10 +61,10 @@ public sealed class ProfilePipeline : IDisposable
         var fileOperations = new FileOperationService(retryService, opts, loggerFactory.CreateLogger<FileOperationService>());
         var robocopyService = new RobocopyService(processRunner, opts, loggerFactory.CreateLogger<RobocopyService>());
 
-        _watcher = new WatcherService(opts, pathMapping, pathSafety, clock, loggerFactory.CreateLogger<WatcherService>());
+        _watcher = new WatcherService(profileName, opts, pathMapping, pathSafety, healthStore, clock, loggerFactory.CreateLogger<WatcherService>());
         _eventBuffer = new EventBufferService(pathMapping, clock, opts, loggerFactory.CreateLogger<EventBufferService>());
         _syncProcessor = new SyncProcessor(stabilityChecker, fileComparison, conflictResolver, fileOperations, pathMapping, pathSafety, loggerFactory.CreateLogger<SyncProcessor>());
-        _reconciliation = new ReconciliationService(robocopyService, opts, clock, loggerFactory.CreateLogger<ReconciliationService>());
+        _reconciliation = new ReconciliationService(profileName, robocopyService, opts, healthStore, clock, loggerFactory.CreateLogger<ReconciliationService>());
     }
 
     public async Task StartAsync(CancellationToken stoppingToken)
@@ -70,6 +73,7 @@ public sealed class ProfilePipeline : IDisposable
 
         _logger.LogInformation("[{Profile}] Starting — Source: {Source}, Destination: {Dest}",
             _profileName, _options.SourcePath, _options.DestinationPath);
+        _healthStore.RecordProfileState(_profileName, "Starting");
 
         ValidateConfiguration();
 
@@ -92,7 +96,7 @@ public sealed class ProfilePipeline : IDisposable
         if (_options.Reconciliation.RunOnStartup)
         {
             _logger.LogInformation("[{Profile}] Running startup reconciliation...", _profileName);
-            await _reconciliation.RunReconciliationAsync(stoppingToken);
+            await _reconciliation.RunReconciliationAsync("Startup", stoppingToken);
         }
 
         // Start watcher
@@ -104,6 +108,7 @@ public sealed class ProfilePipeline : IDisposable
         _processingTask = ProcessWorkItemsAsync(stoppingToken);
 
         _logger.LogInformation("[{Profile}] Pipeline running", _profileName);
+        _healthStore.RecordProfileState(_profileName, "Running");
 
         // Wait for all tasks to complete (they run until cancellation)
         try
@@ -116,6 +121,7 @@ public sealed class ProfilePipeline : IDisposable
         }
         finally
         {
+            _healthStore.RecordProfileState(_profileName, "Stopped");
             _watcher.Stop();
             _watcherChannel.Writer.TryComplete();
             _workItemChannel.Writer.TryComplete();
@@ -134,11 +140,12 @@ public sealed class ProfilePipeline : IDisposable
                 {
                     _logger.LogInformation("[{Profile}] Processing reconciliation request ({Kind})",
                         _profileName, workItem.Kind);
-                    await _reconciliation.RunReconciliationAsync(stoppingToken);
+                    await _reconciliation.RunReconciliationAsync(workItem.Kind.ToString(), stoppingToken);
                     continue;
                 }
 
                 var result = await _syncProcessor.ProcessAsync(workItem, stoppingToken);
+                _healthStore.RecordSyncResult(_profileName, result);
 
                 if (!result.Success)
                 {
