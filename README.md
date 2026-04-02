@@ -19,7 +19,19 @@ foldersync validate-config
 foldersync install
 foldersync uninstall
 foldersync status
+foldersync status --verbose
+foldersync status --json
+foldersync health
+foldersync health --json
 ```
+
+`status --verbose` is the best human-oriented operator view.
+
+`status --json` emits the full structured service/runtime report, including install/config/log paths, runtime counters, reconciliation metadata, and recent activity.
+
+`health` is a compact summary for quick checks.
+
+`health --json` emits a smaller machine-friendly payload for scripts, automation, and dashboards.
 
 ## Configuration
 
@@ -40,6 +52,25 @@ The checked-in example file is safe to commit. Your local `appsettings.json` is 
 5. Run `foldersync validate-config --config <your-config>` to verify profile safety checks.
 6. Review the destination and logs.
 7. Only enable deletion sync after you are confident the mapping is correct.
+
+Useful runtime checks:
+
+```powershell
+foldersync status --verbose
+foldersync status --json
+foldersync health
+foldersync health --json
+```
+
+The running service also persists runtime health to `foldersync-health.json` in the install directory.
+
+That snapshot includes:
+
+- per-profile processed/succeeded/skipped/failed counts
+- watcher overflow counts
+- last successful sync and last failure
+- repeated-failure / repeated-overflow alerts
+- latest reconciliation trigger, duration, exit meaning, and parsed robocopy summary
 
 ## Deletion Safety
 

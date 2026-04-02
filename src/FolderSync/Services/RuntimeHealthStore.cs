@@ -21,6 +21,9 @@ public interface IRuntimeHealthStore
 
 public sealed class RuntimeHealthStore : IRuntimeHealthStore
 {
+    private const int ConsecutiveFailureAlertThreshold = 3;
+    private const int OverflowAlertThreshold = 3;
+
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         WriteIndented = true
@@ -117,7 +120,10 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
     {
         lock (_gate)
         {
-            GetProfile(profileName).WatcherOverflowCount++;
+            var profile = GetProfile(profileName);
+            profile.WatcherOverflowCount++;
+            profile.ConsecutiveOverflowCount++;
+            UpdateAlertState(profile);
             PersistLocked();
         }
     }
@@ -135,6 +141,7 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
             if (result.Success)
             {
                 profile.SucceededCount++;
+                profile.ConsecutiveFailureCount = 0;
                 if (!result.IsSkipped)
                 {
                     profile.LastSuccessfulSyncUtc = _clock.UtcNow;
@@ -145,7 +152,13 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
                 profile.FailedCount++;
                 profile.LastFailedSyncUtc = _clock.UtcNow;
                 profile.LastFailure = result.ErrorMessage;
+                profile.ConsecutiveFailureCount++;
             }
+
+            if (!result.IsSkipped || result.Success)
+                profile.ConsecutiveOverflowCount = 0;
+
+            UpdateAlertState(profile);
 
             PersistLocked();
         }
@@ -188,6 +201,39 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
         profile = new ProfileHealthSnapshot { Name = profileName };
         _snapshot.Profiles.Add(profile);
         return profile;
+    }
+
+    private void UpdateAlertState(ProfileHealthSnapshot profile)
+    {
+        string? newLevel = null;
+        string? newMessage = null;
+
+        if (profile.ConsecutiveFailureCount >= ConsecutiveFailureAlertThreshold)
+        {
+            newLevel = "warning";
+            newMessage = $"Profile '{profile.Name}' has {profile.ConsecutiveFailureCount} consecutive failed sync operations.";
+        }
+        else if (profile.ConsecutiveOverflowCount >= OverflowAlertThreshold)
+        {
+            newLevel = "warning";
+            newMessage = $"Profile '{profile.Name}' has hit watcher overflow {profile.ConsecutiveOverflowCount} times in a row.";
+        }
+
+        if (newMessage is null)
+        {
+            profile.AlertLevel = null;
+            profile.AlertMessage = null;
+            return;
+        }
+
+        if (!string.Equals(profile.AlertMessage, newMessage, StringComparison.Ordinal))
+        {
+            _logger.LogWarning(newMessage);
+            profile.LastAlertUtc = _clock.UtcNow;
+        }
+
+        profile.AlertLevel = newLevel;
+        profile.AlertMessage = newMessage;
     }
 
     private void PersistLocked()

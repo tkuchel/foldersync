@@ -399,6 +399,8 @@ public static class StatusCommand
             Console.WriteLine($"Profile {profile.Name}:");
             Console.WriteLine(
                 $"  state={profile.State}, processed={profile.ProcessedCount}, succeeded={profile.SucceededCount}, skipped={profile.SkippedCount}, failed={profile.FailedCount}, overflows={profile.WatcherOverflowCount}");
+            if (!string.IsNullOrWhiteSpace(profile.AlertMessage))
+                Console.WriteLine($"  alert={profile.AlertLevel}: {profile.AlertMessage}");
 
             if (profile.LastSuccessfulSyncUtc is not null)
                 Console.WriteLine($"  last sync={profile.LastSuccessfulSyncUtc.Value.LocalDateTime}");

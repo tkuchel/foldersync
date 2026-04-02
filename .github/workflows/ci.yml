@@ -27,3 +27,6 @@ jobs:
 
       - name: Test
         run: dotnet test FolderSync.slnx --no-build --configuration Release --nologo
+
+      - name: Validate JSON Report Shape
+        run: dotnet test FolderSync.slnx --no-build --configuration Release --nologo --filter "StatusCommandTests|RuntimeHealthStoreTests|ReconciliationServiceTests|RobocopyServiceTests"

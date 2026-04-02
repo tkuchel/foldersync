@@ -22,6 +22,11 @@ public sealed class ProfileHealthSnapshot
     public DateTimeOffset? LastSuccessfulSyncUtc { get; set; }
     public DateTimeOffset? LastFailedSyncUtc { get; set; }
     public string? LastFailure { get; set; }
+    public long ConsecutiveFailureCount { get; set; }
+    public long ConsecutiveOverflowCount { get; set; }
+    public string? AlertLevel { get; set; }
+    public string? AlertMessage { get; set; }
+    public DateTimeOffset? LastAlertUtc { get; set; }
     public ReconciliationHealthSnapshot Reconciliation { get; init; } = new();
 }
 

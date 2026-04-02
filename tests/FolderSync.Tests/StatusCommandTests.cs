@@ -190,7 +190,10 @@ public sealed class StatusCommandTests
                         State = "Running",
                         ProcessedCount = 9,
                         FailedCount = 1,
-                        WatcherOverflowCount = 2
+                        WatcherOverflowCount = 2,
+                        ConsecutiveFailureCount = 3,
+                        AlertLevel = "warning",
+                        AlertMessage = "Profile 'alpha' has 3 consecutive failed sync operations."
                     }
                 ]
             }
@@ -203,5 +206,6 @@ public sealed class StatusCommandTests
         Assert.Contains("\"Status\":\"Running\"", json);
         Assert.Contains("\"Name\":\"alpha\"", json);
         Assert.Contains("\"WatcherOverflowCount\":2", json);
+        Assert.Contains("\"AlertLevel\":\"warning\"", json);
     }
 }

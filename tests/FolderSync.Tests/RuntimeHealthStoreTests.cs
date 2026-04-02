@@ -69,6 +69,7 @@ public sealed class RuntimeHealthStoreTests
             Assert.Equal(2, profile.SkippedCount);
             Assert.Equal(1, profile.FailedCount);
             Assert.Equal(1, profile.WatcherOverflowCount);
+            Assert.Equal(1, profile.ConsecutiveFailureCount);
             Assert.NotNull(profile.LastSuccessfulSyncUtc);
             Assert.NotNull(profile.LastFailedSyncUtc);
             Assert.Equal("File not stable", profile.LastFailure);
@@ -79,6 +80,41 @@ public sealed class RuntimeHealthStoreTests
             Assert.Equal("Extra files or directories detected", profile.Reconciliation.LastExitDescription);
             Assert.Equal(5, profile.Reconciliation.LastSummary!.FilesCopied);
             Assert.Equal(3000d, profile.Reconciliation.LastDurationMs);
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Store_RaisesAlert_AfterRepeatedFailures()
+    {
+        var clock = new FakeClock();
+        var tempDir = Directory.CreateTempSubdirectory();
+
+        try
+        {
+            var snapshotPath = Path.Combine(tempDir.FullName, "foldersync-health.json");
+            var store = new RuntimeHealthStore(snapshotPath, clock, NullLogger<RuntimeHealthStore>.Instance);
+            store.Initialize(["alpha"]);
+
+            var workItem = new SyncWorkItem
+            {
+                Kind = WatcherChangeKind.Created,
+                SourcePath = @"C:\source\file.txt",
+                DestinationPath = @"C:\dest\file.txt"
+            };
+
+            for (var i = 0; i < 3; i++)
+                store.RecordSyncResult("alpha", new SyncResult(false, workItem, TimeSpan.Zero, "File not stable", IsSkipped: true));
+
+            var snapshot = StatusCommand.TryReadRuntimeHealthSnapshot(snapshotPath);
+            var profile = Assert.Single(snapshot!.Profiles);
+            Assert.Equal(3, profile.ConsecutiveFailureCount);
+            Assert.Equal("warning", profile.AlertLevel);
+            Assert.Contains("consecutive failed sync operations", profile.AlertMessage);
+            Assert.NotNull(profile.LastAlertUtc);
         }
         finally
         {

@@ -22,9 +22,14 @@ public static class HealthCommand
         public long ProcessedCount { get; init; }
         public long FailedCount { get; init; }
         public long WatcherOverflowCount { get; init; }
+        public long ConsecutiveFailureCount { get; init; }
+        public long ConsecutiveOverflowCount { get; init; }
         public DateTimeOffset? LastSuccessfulSyncUtc { get; init; }
         public DateTimeOffset? LastFailedSyncUtc { get; init; }
         public string? LastFailure { get; init; }
+        public string? AlertLevel { get; init; }
+        public string? AlertMessage { get; init; }
+        public DateTimeOffset? LastAlertUtc { get; init; }
         public ReconciliationHealthSnapshot Reconciliation { get; init; } = new();
     }
 
@@ -100,9 +105,14 @@ public static class HealthCommand
                 ProcessedCount = profile.ProcessedCount,
                 FailedCount = profile.FailedCount,
                 WatcherOverflowCount = profile.WatcherOverflowCount,
+                ConsecutiveFailureCount = profile.ConsecutiveFailureCount,
+                ConsecutiveOverflowCount = profile.ConsecutiveOverflowCount,
                 LastSuccessfulSyncUtc = profile.LastSuccessfulSyncUtc,
                 LastFailedSyncUtc = profile.LastFailedSyncUtc,
                 LastFailure = profile.LastFailure,
+                AlertLevel = profile.AlertLevel,
+                AlertMessage = profile.AlertMessage,
+                LastAlertUtc = profile.LastAlertUtc,
                 Reconciliation = profile.Reconciliation
             }).ToList() ?? []
         };
