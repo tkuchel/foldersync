@@ -26,6 +26,11 @@ public static class HostBuilderHelper
             ContentRootPath = appDir
         });
 
+        builder.Configuration.Sources.Clear();
+        builder.Configuration
+            .AddJsonFile("appsettings.example.json", optional: false, reloadOnChange: false)
+            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true);
+
         // Custom config file support
         if (!string.IsNullOrWhiteSpace(configPath))
         {

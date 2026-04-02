@@ -4,5 +4,6 @@ obj/
 .idea/
 .vs/
 
+src/FolderSync/appsettings.json
 src/FolderSync/logs/
 tests/**/TestResults/

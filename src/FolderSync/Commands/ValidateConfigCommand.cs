@@ -42,7 +42,8 @@ public static class ValidateConfigCommand
 
             var configBuilder = new ConfigurationBuilder()
                 .SetBasePath(AppContext.BaseDirectory)
-                .AddJsonFile("appsettings.json", optional: false);
+                .AddJsonFile("appsettings.example.json", optional: false)
+                .AddJsonFile("appsettings.json", optional: true);
 
             if (!string.IsNullOrWhiteSpace(resolvedConfigPath))
                 configBuilder.AddJsonFile(resolvedConfigPath, optional: false);

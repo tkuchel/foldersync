@@ -25,19 +25,21 @@ foldersync status
 
 The application reads configuration from:
 
-- [appsettings.json](/T:/repos/foldersync/src/FolderSync/appsettings.json)
+- [appsettings.example.json](/T:/repos/foldersync/src/FolderSync/appsettings.example.json)
+- An optional local `appsettings.json`
 - An optional custom file passed with `--config`
 
-The checked-in `appsettings.json` is a safe example. Replace the example paths with your own local folders before running.
+The checked-in example file is safe to commit. Your local `appsettings.json` is ignored by Git and overrides the example when present.
 
 ## Safe Setup
 
-1. Update the source and destination paths in `src/FolderSync/appsettings.json`.
-2. Start with `"DryRun": true` while validating behavior.
-3. Run `foldersync reconcile --config <your-config>` to test a one-shot sync.
-4. Run `foldersync validate-config --config <your-config>` to verify profile safety checks.
-5. Review the destination and logs.
-6. Only enable deletion sync after you are confident the mapping is correct.
+1. Copy `src/FolderSync/appsettings.example.json` to `src/FolderSync/appsettings.json`.
+2. Update the source and destination paths in your local `appsettings.json`.
+3. Start with `"DryRun": true` while validating behavior.
+4. Run `foldersync reconcile --config <your-config>` to test a one-shot sync.
+5. Run `foldersync validate-config --config <your-config>` to verify profile safety checks.
+6. Review the destination and logs.
+7. Only enable deletion sync after you are confident the mapping is correct.
 
 ## Deletion Safety
 
