@@ -38,7 +38,22 @@ public sealed class RuntimeHealthStoreTests
             store.RecordReconciliationStarted("alpha", "Startup");
 
             clock.Advance(TimeSpan.FromSeconds(3));
-            store.RecordReconciliationCompleted("alpha", "Startup", success: true, exitCode: 2, duration: TimeSpan.FromSeconds(3));
+            store.RecordReconciliationCompleted(
+                "alpha",
+                "Startup",
+                new RobocopyResult(
+                    Success: true,
+                    ExitCode: 2,
+                    Output: string.Empty,
+                    ErrorOutput: string.Empty,
+                    ExitDescription: "Extra files or directories detected",
+                    Summary: new RobocopySummarySnapshot
+                    {
+                        FilesCopied = 5,
+                        FilesFailed = 0,
+                        FilesExtras = 1
+                    }),
+                TimeSpan.FromSeconds(3));
 
             var snapshot = StatusCommand.TryReadRuntimeHealthSnapshot(snapshotPath);
 
@@ -61,6 +76,8 @@ public sealed class RuntimeHealthStoreTests
             Assert.Equal("Startup", profile.Reconciliation.LastTrigger);
             Assert.True(profile.Reconciliation.LastSuccess);
             Assert.Equal(2, profile.Reconciliation.LastExitCode);
+            Assert.Equal("Extra files or directories detected", profile.Reconciliation.LastExitDescription);
+            Assert.Equal(5, profile.Reconciliation.LastSummary!.FilesCopied);
             Assert.Equal(3000d, profile.Reconciliation.LastDurationMs);
         }
         finally

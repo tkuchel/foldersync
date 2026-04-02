@@ -16,7 +16,7 @@ public interface IRuntimeHealthStore
     void RecordWatcherOverflow(string profileName);
     void RecordSyncResult(string profileName, SyncResult result);
     void RecordReconciliationStarted(string profileName, string trigger);
-    void RecordReconciliationCompleted(string profileName, string trigger, bool success, int exitCode, TimeSpan duration);
+    void RecordReconciliationCompleted(string profileName, string trigger, RobocopyResult result, TimeSpan duration);
 }
 
 public sealed class RuntimeHealthStore : IRuntimeHealthStore
@@ -162,7 +162,7 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
         }
     }
 
-    public void RecordReconciliationCompleted(string profileName, string trigger, bool success, int exitCode, TimeSpan duration)
+    public void RecordReconciliationCompleted(string profileName, string trigger, RobocopyResult result, TimeSpan duration)
     {
         lock (_gate)
         {
@@ -171,8 +171,10 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
             reconciliation.LastTrigger = trigger;
             reconciliation.LastCompletedAtUtc = _clock.UtcNow;
             reconciliation.LastDurationMs = duration.TotalMilliseconds;
-            reconciliation.LastSuccess = success;
-            reconciliation.LastExitCode = exitCode;
+            reconciliation.LastSuccess = result.Success;
+            reconciliation.LastExitCode = result.ExitCode;
+            reconciliation.LastExitDescription = result.ExitDescription;
+            reconciliation.LastSummary = result.Summary;
             PersistLocked();
         }
     }

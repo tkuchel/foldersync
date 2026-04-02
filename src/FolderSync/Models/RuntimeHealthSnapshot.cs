@@ -34,4 +34,19 @@ public sealed class ReconciliationHealthSnapshot
     public double? LastDurationMs { get; set; }
     public bool? LastSuccess { get; set; }
     public int? LastExitCode { get; set; }
+    public string? LastExitDescription { get; set; }
+    public RobocopySummarySnapshot? LastSummary { get; set; }
+}
+
+public sealed class RobocopySummarySnapshot
+{
+    public int? DirectoriesTotal { get; set; }
+    public int? DirectoriesCopied { get; set; }
+    public int? DirectoriesSkipped { get; set; }
+    public int? DirectoriesExtras { get; set; }
+    public int? FilesTotal { get; set; }
+    public int? FilesCopied { get; set; }
+    public int? FilesSkipped { get; set; }
+    public int? FilesExtras { get; set; }
+    public int? FilesFailed { get; set; }
 }

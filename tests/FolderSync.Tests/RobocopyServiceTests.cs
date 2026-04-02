@@ -117,4 +117,22 @@ public sealed class RobocopyServiceTests
             Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<CancellationToken>(), Arg.Any<TimeSpan?>());
     }
+
+    [Fact]
+    public void TryParseSummary_ExtractsFileAndDirectoryCounts()
+    {
+        var output = "               Total    Copied   Skipped  Mismatch    FAILED    Extras\n" +
+                     "    Dirs :        18         0        18         0         0         1\n" +
+                     "   Files :        62         5        57         0         0         0\n";
+
+        var summary = RobocopyService.TryParseSummary(output);
+
+        Assert.NotNull(summary);
+        Assert.Equal(18, summary!.DirectoriesTotal);
+        Assert.Equal(1, summary.DirectoriesExtras);
+        Assert.Equal(62, summary.FilesTotal);
+        Assert.Equal(5, summary.FilesCopied);
+        Assert.Equal(57, summary.FilesSkipped);
+        Assert.Equal(0, summary.FilesFailed);
+    }
 }

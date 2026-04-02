@@ -50,7 +50,7 @@ public sealed class ReconciliationService : IReconciliationService
         _logger.LogInformation("Starting reconciliation...");
         var result = await _robocopy.ReconcileAsync(cancellationToken);
         var duration = _clock.UtcNow - startedAt;
-        _healthStore.RecordReconciliationCompleted(_profileName, trigger, result.Success, result.ExitCode, duration);
+        _healthStore.RecordReconciliationCompleted(_profileName, trigger, result, duration);
 
         if (result.Success)
         {

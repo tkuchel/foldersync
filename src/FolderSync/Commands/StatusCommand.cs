@@ -34,9 +34,15 @@ public static class StatusCommand
             Description = "Show service health, config, and recent log activity"
         };
 
+        var jsonOption = new Option<bool>("--json")
+        {
+            Description = "Emit structured JSON status output"
+        };
+
         var command = new Command("status", "Show FolderSync Windows Service status");
         command.Options.Add(nameOption);
         command.Options.Add(verboseOption);
+        command.Options.Add(jsonOption);
 
         command.SetAction(parseResult =>
         {
@@ -45,32 +51,30 @@ public static class StatusCommand
 
             var name = parseResult.GetValue(nameOption)!;
             var verbose = parseResult.GetValue(verboseOption);
-            Execute(name, verbose);
+            var json = parseResult.GetValue(jsonOption);
+            Execute(name, verbose, json);
         });
 
         return command;
     }
 
     [SupportedOSPlatform("windows")]
-    private static void Execute(string serviceName, bool verbose)
+    internal static StatusReport? TryBuildStatusReport(string serviceName, out string? errorMessage)
     {
         var (exitCode, output, error) = ServiceHelper.RunSc($"query \"{serviceName}\"");
+        errorMessage = null;
 
         if (exitCode != 0)
         {
             if (output.Contains("1060") || error.Contains("1060"))
             {
-                Console.WriteLine($"Service '{serviceName}' is not installed.");
-                Console.WriteLine();
-                Console.WriteLine("To install: foldersync install");
+                errorMessage = $"Service '{serviceName}' is not installed.";
             }
             else
             {
-                Console.Error.WriteLine($"Failed to query service (exit code {exitCode}):");
-                Console.Error.WriteLine(string.IsNullOrWhiteSpace(error) ? output : error);
-                Environment.ExitCode = 1;
+                errorMessage = $"Failed to query service (exit code {exitCode}): {(string.IsNullOrWhiteSpace(error) ? output : error)}";
             }
-            return;
+            return null;
         }
 
         var state = ParseState(output);
@@ -86,71 +90,94 @@ public static class StatusCommand
             _ => state ?? "Unknown"
         };
 
-        Console.WriteLine($"Service: {serviceName}");
-        Console.WriteLine($"Status:  {displayState}");
-
         var (qcExitCode, qcOutput, _) = ServiceHelper.RunSc($"qc \"{serviceName}\"");
         string? binPath = null;
         if (qcExitCode == 0)
-        {
             binPath = ParseBinPath(qcOutput);
-            if (binPath is not null)
-                Console.WriteLine($"Path:    {binPath}");
+        
+        return BuildStatusReport(serviceName, state, displayState, binPath);
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void Execute(string serviceName, bool verbose, bool json)
+    {
+        var report = TryBuildStatusReport(serviceName, out var errorMessage);
+        if (report is null)
+        {
+            if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                if (errorMessage.Contains("not installed", StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.WriteLine(errorMessage);
+                    Console.WriteLine();
+                    Console.WriteLine("To install: foldersync install");
+                }
+                else
+                {
+                    Console.Error.WriteLine(errorMessage);
+                    Environment.ExitCode = 1;
+                }
+            }
+
+            return;
         }
+
+        if (json)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
+            return;
+        }
+
+        Console.WriteLine($"Service: {report.ServiceName}");
+        Console.WriteLine($"Status:  {report.DisplayState}");
+
+        if (!string.IsNullOrWhiteSpace(report.BinaryPath))
+            Console.WriteLine($"Path:    {report.BinaryPath}");
 
         if (verbose)
         {
             Console.WriteLine();
-            PrintVerboseStatus(serviceName, state, binPath);
+            PrintVerboseStatus(report);
         }
     }
 
     [SupportedOSPlatform("windows")]
-    private static void PrintVerboseStatus(string serviceName, string? state, string? binPath)
+    internal static StatusReport BuildStatusReport(string serviceName, string? state, string displayState, string? binPath)
     {
-        if (string.IsNullOrWhiteSpace(binPath))
+        var report = new StatusReport
         {
-            Console.WriteLine("Verbose: Service binary path unavailable.");
-            return;
-        }
+            ServiceName = serviceName,
+            RawState = state,
+            DisplayState = displayState,
+            BinaryPath = binPath
+        };
+
+        if (string.IsNullOrWhiteSpace(binPath))
+            return report;
 
         var executablePath = NormalizeExecutablePath(binPath);
         if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath))
-        {
-            Console.WriteLine("Verbose: Installed executable not found.");
-            return;
-        }
+            return report;
 
         var installDir = Path.GetDirectoryName(executablePath);
         if (string.IsNullOrWhiteSpace(installDir))
-        {
-            Console.WriteLine("Verbose: Could not determine install directory.");
-            return;
-        }
+            return report;
 
-        Console.WriteLine("Health");
-        Console.WriteLine($"Install: {installDir}");
-        Console.WriteLine($"State:   {state ?? "Unknown"}");
-
-        var version = GetFileVersion(executablePath);
-        if (!string.IsNullOrWhiteSpace(version))
-            Console.WriteLine($"Version: {version}");
+        report.InstallDirectory = installDir;
+        report.Version = GetFileVersion(executablePath);
 
         var configPath = Path.Combine(installDir, "appsettings.json");
-        Console.WriteLine($"Config:  {(File.Exists(configPath) ? configPath : "missing")}");
-
-        var profileNames = TryReadProfileNames(configPath);
-        if (profileNames.Count > 0)
-            Console.WriteLine($"Profiles: {string.Join(", ", profileNames)}");
+        report.ConfigPath = File.Exists(configPath) ? configPath : null;
+        report.Profiles = TryReadProfileNames(configPath);
 
         var logsDir = Path.Combine(installDir, "logs");
-        Console.WriteLine($"Logs:    {(Directory.Exists(logsDir) ? logsDir : "missing")}");
+        report.LogsDirectory = Directory.Exists(logsDir) ? logsDir : null;
 
         var healthPath = Path.Combine(installDir, "foldersync-health.json");
-        PrintRuntimeMetrics(healthPath);
+        report.Runtime = TryReadRuntimeHealthSnapshot(healthPath);
 
         if (!Directory.Exists(logsDir))
-            return;
+            return report;
 
         var latestLog = Directory.GetFiles(logsDir, "*.log")
             .Select(path => new FileInfo(path))
@@ -158,32 +185,79 @@ public static class StatusCommand
             .FirstOrDefault();
 
         if (latestLog is null)
+            return report;
+
+        report.RecentLog = new LogFileReport
+        {
+            Name = latestLog.Name,
+            Path = latestLog.FullName,
+            LastWriteTime = latestLog.LastWriteTime
+        };
+
+        var logLines = ReadTail(latestLog.FullName, 200);
+        if (logLines.Count == 0)
+            return report;
+
+        var activity = SummarizeRecentActivity(logLines);
+        report.RecentActivity = new RecentActivityReport
+        {
+            LastReconcile = activity.LastReconcile,
+            LastSync = activity.LastSync,
+            LastLifecycle = activity.LastLifecycle,
+            LastWarning = activity.LastWarning,
+            LastError = activity.LastError
+        };
+
+        return report;
+    }
+
+    private static void PrintVerboseStatus(StatusReport report)
+    {
+        if (string.IsNullOrWhiteSpace(report.InstallDirectory))
+        {
+            Console.WriteLine("Verbose: Installed executable not found.");
+            return;
+        }
+
+        Console.WriteLine("Health");
+        Console.WriteLine($"Install: {report.InstallDirectory}");
+        Console.WriteLine($"State:   {report.RawState ?? "Unknown"}");
+
+        if (!string.IsNullOrWhiteSpace(report.Version))
+            Console.WriteLine($"Version: {report.Version}");
+
+        Console.WriteLine($"Config:  {report.ConfigPath ?? "missing"}");
+
+        if (report.Profiles.Count > 0)
+            Console.WriteLine($"Profiles: {string.Join(", ", report.Profiles)}");
+
+        Console.WriteLine($"Logs:    {report.LogsDirectory ?? "missing"}");
+        PrintRuntimeMetrics(report.Runtime);
+
+        if (report.RecentLog is null)
         {
             Console.WriteLine("Recent log: none");
             return;
         }
 
-        Console.WriteLine($"Recent log: {latestLog.Name} ({latestLog.LastWriteTime})");
+        Console.WriteLine($"Recent log: {report.RecentLog.Name} ({report.RecentLog.LastWriteTime.LocalDateTime})");
 
-        var logLines = ReadTail(latestLog.FullName, 200);
-        if (logLines.Count == 0)
+        if (report.RecentActivity is null)
         {
             Console.WriteLine("Recent activity: unavailable");
             return;
         }
 
-        var activity = SummarizeRecentActivity(logLines);
-
-        if (activity.LastReconcile is not null)
-            Console.WriteLine($"Last reconcile: {TrimLogLine(activity.LastReconcile)}");
-        if (activity.LastSync is not null)
-            Console.WriteLine($"Last sync:      {TrimLogLine(activity.LastSync)}");
-        if (activity.LastLifecycle is not null)
-            Console.WriteLine($"Last lifecycle: {TrimLogLine(activity.LastLifecycle)}");
-        if (activity.LastWarning is not null)
-            Console.WriteLine($"Last warning:   {TrimLogLine(activity.LastWarning)}");
-        if (activity.LastError is not null)
-            Console.WriteLine($"Last error:     {TrimLogLine(activity.LastError)}");
+        if (report.RecentActivity.LastReconcile is not null)
+            Console.WriteLine($"Last reconcile: {TrimLogLine(report.RecentActivity.LastReconcile)}");
+        if (report.RecentActivity.LastSync is not null)
+            Console.WriteLine($"Last sync:      {TrimLogLine(report.RecentActivity.LastSync)}");
+        if (report.RecentActivity.LastLifecycle is not null)
+            Console.WriteLine($"Last lifecycle: {TrimLogLine(report.RecentActivity.LastLifecycle)}");
+        if (report.RecentActivity.LastWarning is not null)
+            Console.WriteLine($"Last warning:   {TrimLogLine(report.RecentActivity.LastWarning)}");
+        if (report.RecentActivity.LastError is not null)
+            Console.WriteLine($"Last error:     {TrimLogLine(report.RecentActivity.LastError)}");
     }
 
     private static string? ParseState(string scOutput)
@@ -313,9 +387,8 @@ public static class StatusCommand
         return patterns.Any(pattern => line.Contains(pattern, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static void PrintRuntimeMetrics(string healthPath)
+    private static void PrintRuntimeMetrics(RuntimeHealthSnapshot? snapshot)
     {
-        var snapshot = TryReadRuntimeHealthSnapshot(healthPath);
         if (snapshot is null)
             return;
 
@@ -341,6 +414,10 @@ public static class StatusCommand
                     : $"{TimeSpan.FromMilliseconds(reconciliation.LastDurationMs.Value).TotalSeconds:F1}s";
                 Console.WriteLine(
                     $"  reconcile={status}, runs={reconciliation.RunCount}, trigger={reconciliation.LastTrigger}, exit={reconciliation.LastExitCode}, duration={duration}");
+                if (!string.IsNullOrWhiteSpace(reconciliation.LastExitDescription))
+                    Console.WriteLine($"  reconcile note={reconciliation.LastExitDescription}");
+                if (reconciliation.LastSummary?.FilesCopied is not null)
+                    Console.WriteLine($"  reconcile files copied={reconciliation.LastSummary.FilesCopied}, extras={reconciliation.LastSummary.FilesExtras}, failed={reconciliation.LastSummary.FilesFailed}");
                 if (reconciliation.LastCompletedAtUtc is not null)
                     Console.WriteLine($"  last reconcile={reconciliation.LastCompletedAtUtc.Value.LocalDateTime}");
             }

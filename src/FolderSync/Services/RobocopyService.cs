@@ -5,7 +5,13 @@ using Microsoft.Extensions.Options;
 
 namespace FolderSync.Services;
 
-public sealed record RobocopyResult(bool Success, int ExitCode, string Output, string ErrorOutput);
+public sealed record RobocopyResult(
+    bool Success,
+    int ExitCode,
+    string Output,
+    string ErrorOutput,
+    string ExitDescription,
+    RobocopySummarySnapshot? Summary);
 
 public interface IRobocopyService
 {
@@ -33,7 +39,7 @@ public sealed class RobocopyService : IRobocopyService
         if (_options.DryRun)
         {
             _logger.LogInformation("[DRY RUN] Would run robocopy reconciliation");
-            return new RobocopyResult(true, 0, "Dry run — skipped", string.Empty);
+            return new RobocopyResult(true, 0, "Dry run — skipped", string.Empty, DescribeExitCode(0), null);
         }
 
         var arguments = BuildArguments();
@@ -47,21 +53,23 @@ public sealed class RobocopyService : IRobocopyService
             timeout: TimeSpan.FromMinutes(30));
 
         var success = IsSuccessExitCode(result.ExitCode);
+        var description = DescribeExitCode(result.ExitCode);
+        var summary = TryParseSummary(result.StandardOutput);
 
         if (success)
         {
             _logger.LogInformation(
                 "Robocopy reconciliation completed (exit code {ExitCode}): {Description}",
-                result.ExitCode, DescribeExitCode(result.ExitCode));
+                result.ExitCode, description);
         }
         else
         {
             _logger.LogError(
                 "Robocopy reconciliation failed (exit code {ExitCode}): {Description}\n{Error}",
-                result.ExitCode, DescribeExitCode(result.ExitCode), result.StandardError);
+                result.ExitCode, description, result.StandardError);
         }
 
-        return new RobocopyResult(success, result.ExitCode, result.StandardOutput, result.StandardError);
+        return new RobocopyResult(success, result.ExitCode, result.StandardOutput, result.StandardError, description, summary);
     }
 
     private string BuildArguments()
@@ -132,6 +140,62 @@ public sealed class RobocopyService : IRobocopyService
         16 => "Fatal error — no files were copied",
         _ => $"Exit code {exitCode} (bits: {Convert.ToString(exitCode, 2)})"
     };
+
+    internal static RobocopySummarySnapshot? TryParseSummary(string output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+            return null;
+
+        var lines = output
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+
+        var dirs = ParseSummaryLine(lines, "Dirs");
+        var files = ParseSummaryLine(lines, "Files");
+
+        if (dirs is null && files is null)
+            return null;
+
+        return new RobocopySummarySnapshot
+        {
+            DirectoriesTotal = dirs?.Total,
+            DirectoriesCopied = dirs?.Copied,
+            DirectoriesSkipped = dirs?.Skipped,
+            DirectoriesExtras = dirs?.Extras,
+            FilesTotal = files?.Total,
+            FilesCopied = files?.Copied,
+            FilesSkipped = files?.Skipped,
+            FilesExtras = files?.Extras,
+            FilesFailed = files?.Failed
+        };
+    }
+
+    private static SummaryCounts? ParseSummaryLine(IEnumerable<string> lines, string label)
+    {
+        var line = lines.FirstOrDefault(candidate => candidate.StartsWith(label, StringComparison.OrdinalIgnoreCase));
+        if (line is null)
+            return null;
+
+        var numbers = line
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Skip(2)
+            .Take(6)
+            .Select(token => int.TryParse(token.Replace(",", string.Empty), out var value) ? value : (int?)null)
+            .ToArray();
+
+        if (numbers.Length < 6 || numbers.Any(value => value is null))
+            return null;
+
+        return new SummaryCounts(
+            numbers[0]!.Value,
+            numbers[1]!.Value,
+            numbers[2]!.Value,
+            numbers[3]!.Value,
+            numbers[4]!.Value,
+            numbers[5]!.Value);
+    }
+
+    private sealed record SummaryCounts(int Total, int Copied, int Skipped, int Mismatch, int Failed, int Extras);
 
     private static bool ContainsOption(string? options, string expectedOption)
     {
