@@ -12,6 +12,8 @@ public static class HealthCommand
         public required string ServiceName { get; init; }
         public required string Status { get; init; }
         public DateTimeOffset? UpdatedAtUtc { get; init; }
+        public bool IsPaused { get; init; }
+        public string? PauseReason { get; init; }
         public List<HealthProfilePayload> Profiles { get; init; } = [];
     }
 
@@ -98,6 +100,8 @@ public static class HealthCommand
             ServiceName = report.ServiceName,
             Status = report.DisplayState,
             UpdatedAtUtc = report.Runtime?.UpdatedAtUtc,
+            IsPaused = report.Control?.IsPaused ?? report.Runtime?.IsPaused ?? false,
+            PauseReason = report.Control?.Reason ?? report.Runtime?.PauseReason,
             Profiles = report.Runtime?.Profiles.Select(profile => new HealthProfilePayload
             {
                 Name = profile.Name,

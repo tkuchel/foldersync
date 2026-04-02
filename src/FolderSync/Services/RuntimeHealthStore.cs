@@ -12,6 +12,7 @@ public interface IRuntimeHealthStore
     void RecordServiceStarted();
     void RecordServiceStopped();
     void RecordServiceError(string message);
+    void RecordPauseState(bool paused, string? reason, DateTimeOffset? changedAtUtc);
     void RecordProfileState(string profileName, string state);
     void RecordWatcherOverflow(string profileName);
     void RecordSyncResult(string profileName, SyncResult result);
@@ -103,6 +104,17 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
         {
             _snapshot.ServiceState = "Error";
             _snapshot.LastError = message;
+            PersistLocked();
+        }
+    }
+
+    public void RecordPauseState(bool paused, string? reason, DateTimeOffset? changedAtUtc)
+    {
+        lock (_gate)
+        {
+            _snapshot.IsPaused = paused;
+            _snapshot.PauseReason = paused ? reason : null;
+            _snapshot.PausedAtUtc = paused ? changedAtUtc ?? _clock.UtcNow : null;
             PersistLocked();
         }
     }

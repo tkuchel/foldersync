@@ -9,6 +9,7 @@ public sealed class StatusReport
     public string? InstallDirectory { get; set; }
     public string? Version { get; set; }
     public string? ConfigPath { get; set; }
+    public RuntimeControlSnapshot? Control { get; set; }
     public List<string> Profiles { get; set; } = [];
     public string? LogsDirectory { get; set; }
     public LogFileReport? RecentLog { get; set; }

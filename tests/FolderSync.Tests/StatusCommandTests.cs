@@ -176,6 +176,11 @@ public sealed class StatusCommandTests
         {
             ServiceName = "FolderSync",
             DisplayState = "Running",
+            Control = new RuntimeControlSnapshot
+            {
+                IsPaused = true,
+                Reason = "Maintenance window"
+            },
             Runtime = new RuntimeHealthSnapshot
             {
                 ServiceName = "FolderSync",
@@ -207,5 +212,34 @@ public sealed class StatusCommandTests
         Assert.Contains("\"Name\":\"alpha\"", json);
         Assert.Contains("\"WatcherOverflowCount\":2", json);
         Assert.Contains("\"AlertLevel\":\"warning\"", json);
+        Assert.Contains("\"IsPaused\":true", json);
+        Assert.Contains("\"PauseReason\":\"Maintenance window\"", json);
+    }
+
+    [Fact]
+    public void TryReadRuntimeControlSnapshot_Reads_Shared_Control_File()
+    {
+        var tempDir = Directory.CreateTempSubdirectory();
+        try
+        {
+            var path = Path.Combine(tempDir.FullName, "foldersync-control.json");
+            File.WriteAllText(path, """
+            {
+              "isPaused": true,
+              "reason": "Maintenance window",
+              "changedAtUtc": "2026-04-02T10:00:00+00:00"
+            }
+            """);
+
+            var control = StatusCommand.TryReadRuntimeControlSnapshot(path);
+
+            Assert.NotNull(control);
+            Assert.True(control!.IsPaused);
+            Assert.Equal("Maintenance window", control.Reason);
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
     }
 }

@@ -168,6 +168,8 @@ public static class StatusCommand
 
         var configPath = Path.Combine(installDir, "appsettings.json");
         report.ConfigPath = File.Exists(configPath) ? configPath : null;
+        var controlPath = Path.Combine(installDir, "foldersync-control.json");
+        report.Control = TryReadRuntimeControlSnapshot(controlPath);
         report.Profiles = TryReadProfileNames(configPath);
 
         var logsDir = Path.Combine(installDir, "logs");
@@ -227,6 +229,10 @@ public static class StatusCommand
             Console.WriteLine($"Version: {report.Version}");
 
         Console.WriteLine($"Config:  {report.ConfigPath ?? "missing"}");
+        if (report.Control?.IsPaused is true)
+            Console.WriteLine($"Control: paused ({report.Control.Reason ?? "no reason"})");
+        else
+            Console.WriteLine("Control: active");
 
         if (report.Profiles.Count > 0)
             Console.WriteLine($"Profiles: {string.Join(", ", report.Profiles)}");
@@ -440,6 +446,27 @@ public static class StatusCommand
                 FileShare.ReadWrite | FileShare.Delete);
 
             return JsonSerializer.Deserialize<RuntimeHealthSnapshot>(stream, JsonOptions);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    internal static RuntimeControlSnapshot? TryReadRuntimeControlSnapshot(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+                return new RuntimeControlSnapshot();
+
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+
+            return JsonSerializer.Deserialize<RuntimeControlSnapshot>(stream, JsonOptions);
         }
         catch
         {

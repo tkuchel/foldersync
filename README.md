@@ -23,6 +23,8 @@ foldersync status --verbose
 foldersync status --json
 foldersync health
 foldersync health --json
+foldersync pause --reason "Maintenance window"
+foldersync resume
 ```
 
 `status --verbose` is the best human-oriented operator view.
@@ -32,6 +34,10 @@ foldersync health --json
 `health` is a compact summary for quick checks.
 
 `health --json` emits a smaller machine-friendly payload for scripts, automation, and dashboards.
+
+`pause` and `resume` control the running service through a persisted control file.
+
+For a deployed service under `C:\FolderSync`, these commands may need an elevated PowerShell window so they can update the control file in the install directory.
 
 ## Configuration
 

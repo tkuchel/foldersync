@@ -15,6 +15,7 @@ public sealed class ProfilePipeline : IDisposable
     private readonly string _profileName;
     private readonly SyncOptions _options;
     private readonly ILogger _logger;
+    private readonly IRuntimeControlStore _controlStore;
     private readonly IRuntimeHealthStore _healthStore;
 
     // Per-profile services
@@ -40,6 +41,7 @@ public sealed class ProfilePipeline : IDisposable
         IClock clock,
         IFileHasher fileHasher,
         IProcessRunner processRunner,
+        IRuntimeControlStore controlStore,
         IRuntimeHealthStore healthStore,
         ILoggerFactory loggerFactory)
     {
@@ -47,6 +49,7 @@ public sealed class ProfilePipeline : IDisposable
         _options = options;
 
         _logger = loggerFactory.CreateLogger($"FolderSync.Profile.{profileName}");
+        _controlStore = controlStore;
         _healthStore = healthStore;
 
         // Create per-profile service instances using Options.Create for isolation
@@ -95,6 +98,7 @@ public sealed class ProfilePipeline : IDisposable
         // Startup reconciliation
         if (_options.Reconciliation.RunOnStartup)
         {
+            await WaitUntilResumedAsync(stoppingToken);
             _logger.LogInformation("[{Profile}] Running startup reconciliation...", _profileName);
             await _reconciliation.RunReconciliationAsync("Startup", stoppingToken);
         }
@@ -138,12 +142,14 @@ public sealed class ProfilePipeline : IDisposable
             {
                 if (workItem.Kind is WatcherChangeKind.Overflow or WatcherChangeKind.ReconcileRequested)
                 {
+                    await WaitUntilResumedAsync(stoppingToken);
                     _logger.LogInformation("[{Profile}] Processing reconciliation request ({Kind})",
                         _profileName, workItem.Kind);
                     await _reconciliation.RunReconciliationAsync(workItem.Kind.ToString(), stoppingToken);
                     continue;
                 }
 
+                await WaitUntilResumedAsync(stoppingToken);
                 var result = await _syncProcessor.ProcessAsync(workItem, stoppingToken);
                 _healthStore.RecordSyncResult(_profileName, result);
 
@@ -155,6 +161,24 @@ public sealed class ProfilePipeline : IDisposable
             }
         }
         catch (OperationCanceledException) { }
+    }
+
+    private async Task WaitUntilResumedAsync(CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var control = _controlStore.Read();
+            _healthStore.RecordPauseState(control.IsPaused, control.Reason, control.ChangedAtUtc);
+
+            if (!control.IsPaused)
+            {
+                _healthStore.RecordProfileState(_profileName, "Running");
+                return;
+            }
+
+            _healthStore.RecordProfileState(_profileName, "Paused");
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+        }
     }
 
     private void ValidateConfiguration()

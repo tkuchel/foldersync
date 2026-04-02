@@ -4,6 +4,9 @@ public sealed class RuntimeHealthSnapshot
 {
     public required string ServiceName { get; init; }
     public required string ServiceState { get; set; }
+    public bool IsPaused { get; set; }
+    public string? PauseReason { get; set; }
+    public DateTimeOffset? PausedAtUtc { get; set; }
     public DateTimeOffset StartedAtUtc { get; set; }
     public DateTimeOffset UpdatedAtUtc { get; set; }
     public string? LastError { get; set; }

@@ -15,6 +15,7 @@ public sealed class FolderSyncService : BackgroundService
     private readonly IClock _clock;
     private readonly IFileHasher _fileHasher;
     private readonly IProcessRunner _processRunner;
+    private readonly IRuntimeControlStore _controlStore;
     private readonly IRuntimeHealthStore _healthStore;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<FolderSyncService> _logger;
@@ -25,6 +26,7 @@ public sealed class FolderSyncService : BackgroundService
         IClock clock,
         IFileHasher fileHasher,
         IProcessRunner processRunner,
+        IRuntimeControlStore controlStore,
         IRuntimeHealthStore healthStore,
         ILoggerFactory loggerFactory,
         ILogger<FolderSyncService> logger)
@@ -33,6 +35,7 @@ public sealed class FolderSyncService : BackgroundService
         _clock = clock;
         _fileHasher = fileHasher;
         _processRunner = processRunner;
+        _controlStore = controlStore;
         _healthStore = healthStore;
         _loggerFactory = loggerFactory;
         _logger = logger;
@@ -51,6 +54,8 @@ public sealed class FolderSyncService : BackgroundService
         }
 
         _healthStore.Initialize(profiles.Select(profile => profile.Name));
+        var control = _controlStore.Read();
+        _healthStore.RecordPauseState(control.IsPaused, control.Reason, control.ChangedAtUtc);
 
         var validation = ProfileConfigurationValidator.Validate(profiles);
         foreach (var warning in validation.Warnings)
@@ -78,6 +83,7 @@ public sealed class FolderSyncService : BackgroundService
                 _clock,
                 _fileHasher,
                 _processRunner,
+                _controlStore,
                 _healthStore,
                 _loggerFactory);
 
