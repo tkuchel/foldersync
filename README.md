@@ -57,3 +57,28 @@ dotnet test FolderSync.slnx --nologo
 ```
 
 The repo ignores generated output like `bin/`, `obj/`, logs, IDE state, and local Codex/Claude workspace files.
+
+## Local Deployment
+
+For the installed service in `C:\FolderSync`, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1
+```
+
+This script:
+
+- runs tests by default
+- validates the live `C:\FolderSync\appsettings.json`
+- publishes fresh binaries from the repo
+- preserves the live `appsettings.json`
+- leaves the `logs` directory untouched
+- stops and restarts the `FolderSync` service when needed
+
+Useful options:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1 -WhatIf
+powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1 -SkipTests
+powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1 -NoRestart
+```
