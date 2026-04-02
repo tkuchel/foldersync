@@ -1,0 +1,88 @@
+using FolderSync.Infrastructure;
+using FolderSync.Services;
+using FolderSync.Tests.Helpers;
+using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
+
+namespace FolderSync.Tests;
+
+public sealed class RobocopyServiceTests
+{
+    private readonly IProcessRunner _processRunner;
+    private readonly RobocopyService _service;
+
+    public RobocopyServiceTests()
+    {
+        _processRunner = Substitute.For<IProcessRunner>();
+
+        var options = TestOptions.Create(
+            "C:\\Source",
+            "C:\\Dest",
+            o =>
+            {
+                o.Exclusions.DirectoryNames.Add(".git");
+                o.Exclusions.FilePatterns.Add("*.tmp");
+            });
+
+        _service = new RobocopyService(_processRunner, options, NullLogger<RobocopyService>.Instance);
+    }
+
+    [Theory]
+    [InlineData(0, true)]  // No changes
+    [InlineData(1, true)]  // Files copied
+    [InlineData(2, true)]  // Extras detected
+    [InlineData(3, true)]  // Files copied + extras
+    [InlineData(4, true)]  // Mismatches
+    [InlineData(7, true)]  // All informational bits
+    [InlineData(8, false)] // Copy errors
+    [InlineData(16, false)] // Fatal error
+    public async Task ExitCode_InterpretedCorrectly(int exitCode, bool expectedSuccess)
+    {
+        _processRunner.RunAsync(
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<CancellationToken>(),
+            Arg.Any<TimeSpan?>())
+            .Returns(new ProcessResult(exitCode, "", ""));
+
+        var result = await _service.ReconcileAsync();
+
+        Assert.Equal(expectedSuccess, result.Success);
+        Assert.Equal(exitCode, result.ExitCode);
+    }
+
+    [Fact]
+    public async Task Arguments_IncludeExclusions()
+    {
+        string? capturedArgs = null;
+        _processRunner.RunAsync(
+            Arg.Any<string>(),
+            Arg.Do<string>(args => capturedArgs = args),
+            Arg.Any<CancellationToken>(),
+            Arg.Any<TimeSpan?>())
+            .Returns(new ProcessResult(0, "", ""));
+
+        await _service.ReconcileAsync();
+
+        Assert.NotNull(capturedArgs);
+        Assert.Contains("/XD", capturedArgs);
+        Assert.Contains("\".git\"", capturedArgs);
+        Assert.Contains("/XF", capturedArgs);
+        Assert.Contains("\"*.tmp\"", capturedArgs);
+        Assert.Contains("\"*.__syncing\"", capturedArgs);
+    }
+
+    [Fact]
+    public async Task DryRun_SkipsExecution()
+    {
+        var options = TestOptions.Create("C:\\Source", "C:\\Dest", o => o.DryRun = true);
+        var service = new RobocopyService(_processRunner, options, NullLogger<RobocopyService>.Instance);
+
+        var result = await service.ReconcileAsync();
+
+        Assert.True(result.Success);
+        await _processRunner.DidNotReceive().RunAsync(
+            Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<CancellationToken>(), Arg.Any<TimeSpan?>());
+    }
+}

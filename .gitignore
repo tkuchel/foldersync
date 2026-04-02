@@ -1,0 +1,8 @@
+.claude/
+bin/
+obj/
+.idea/
+.vs/
+
+src/FolderSync/logs/
+tests/**/TestResults/
