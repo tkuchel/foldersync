@@ -124,6 +124,13 @@ Build and test with:
 dotnet test FolderSync.slnx --nologo
 ```
 
+## Versioning
+
+- The project version is set explicitly in [FolderSync.csproj](/T:/repos/foldersync/src/FolderSync/FolderSync.csproj).
+- `Version` and `InformationalVersion` should match the intended release tag, for example `1.0.1`.
+- `AssemblyVersion` and `FileVersion` should stay in four-part form, for example `1.0.1.0`.
+- When cutting a release, bump the project version first, build/test, then create the matching Git tag.
+
 The repo ignores generated output like `bin/`, `obj/`, logs, IDE state, and local Codex/Claude workspace files.
 
 ## Branching
