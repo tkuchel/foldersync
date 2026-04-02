@@ -20,9 +20,15 @@ public static class PauseCommand
             Description = "Optional pause reason"
         };
 
+        var profileOption = new Option<string?>("--profile")
+        {
+            Description = "Optional profile name to pause without pausing the whole service"
+        };
+
         var command = new Command("pause", "Pause FolderSync processing without stopping the service");
         command.Options.Add(nameOption);
         command.Options.Add(reasonOption);
+        command.Options.Add(profileOption);
 
         command.SetAction(parseResult =>
         {
@@ -31,14 +37,15 @@ public static class PauseCommand
 
             Execute(
                 parseResult.GetValue(nameOption)!,
-                parseResult.GetValue(reasonOption));
+                parseResult.GetValue(reasonOption),
+                parseResult.GetValue(profileOption));
         });
 
         return command;
     }
 
     [SupportedOSPlatform("windows")]
-    private static void Execute(string serviceName, string? reason)
+    private static void Execute(string serviceName, string? reason, string? profileName)
     {
         if (!TryResolveInstallDirectory(serviceName, out var installDir, out var error))
         {
@@ -53,7 +60,11 @@ public static class PauseCommand
 
         try
         {
-            controlStore.SetPaused(true, string.IsNullOrWhiteSpace(reason) ? "Paused by operator" : reason);
+            var pauseReason = string.IsNullOrWhiteSpace(reason) ? "Paused by operator" : reason;
+            if (string.IsNullOrWhiteSpace(profileName))
+                controlStore.SetPaused(true, pauseReason);
+            else
+                controlStore.SetProfilePaused(profileName, true, pauseReason);
         }
         catch (UnauthorizedAccessException)
         {
@@ -62,7 +73,10 @@ public static class PauseCommand
             return;
         }
 
-        Console.WriteLine($"Paused FolderSync at {installDir}");
+        if (string.IsNullOrWhiteSpace(profileName))
+            Console.WriteLine($"Paused FolderSync at {installDir}");
+        else
+            Console.WriteLine($"Paused profile '{profileName}' at {installDir}");
     }
 
     [SupportedOSPlatform("windows")]

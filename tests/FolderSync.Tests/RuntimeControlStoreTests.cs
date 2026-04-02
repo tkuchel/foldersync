@@ -37,4 +37,38 @@ public sealed class RuntimeControlStoreTests
             tempDir.Delete(recursive: true);
         }
     }
+
+    [Fact]
+    public void Store_Persists_Profile_Specific_Pause_State()
+    {
+        var clock = new FakeClock();
+        clock.Set(new DateTimeOffset(2026, 4, 2, 11, 0, 0, TimeSpan.Zero));
+        var tempDir = Directory.CreateTempSubdirectory();
+
+        try
+        {
+            var path = Path.Combine(tempDir.FullName, "foldersync-control.json");
+            var store = new RuntimeControlStore(path, clock);
+
+            store.SetProfilePaused("alpha", true, "Index rebuild");
+            var paused = store.Read();
+            var profile = Assert.Single(paused.Profiles);
+
+            Assert.Equal("alpha", profile.Name);
+            Assert.True(profile.IsPaused);
+            Assert.Equal("Index rebuild", profile.Reason);
+            Assert.Equal(clock.UtcNow, profile.ChangedAtUtc);
+            Assert.False(paused.IsPaused);
+
+            clock.Advance(TimeSpan.FromMinutes(2));
+            store.SetProfilePaused("alpha", false);
+            var resumed = store.Read();
+
+            Assert.Empty(resumed.Profiles);
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
 }

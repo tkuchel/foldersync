@@ -168,9 +168,11 @@ public sealed class ProfilePipeline : IDisposable
         while (true)
         {
             var control = _controlStore.Read();
+            var effectivePause = control.GetEffectivePause(_profileName);
             _healthStore.RecordPauseState(control.IsPaused, control.Reason, control.ChangedAtUtc);
+            _healthStore.RecordProfilePauseState(_profileName, effectivePause is not null, effectivePause?.Reason, effectivePause?.ChangedAtUtc);
 
-            if (!control.IsPaused)
+            if (effectivePause is null)
             {
                 _healthStore.RecordProfileState(_profileName, "Running");
                 return;

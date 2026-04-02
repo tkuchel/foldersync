@@ -24,7 +24,9 @@ foldersync status --json
 foldersync health
 foldersync health --json
 foldersync pause --reason "Maintenance window"
+foldersync pause --profile example-workspace --reason "Index rebuild"
 foldersync resume
+foldersync resume --profile example-workspace
 foldersync dashboard
 ```
 
@@ -36,9 +38,14 @@ foldersync dashboard
 
 `health --json` emits a smaller machine-friendly payload for scripts, automation, and dashboards.
 
-`pause` and `resume` control the running service through a persisted control file.
+`pause` and `resume` control the running service through a persisted control file. When you pass `--profile`, only that profile pauses and the rest of the service keeps running.
 
 `dashboard` starts a lightweight local web dashboard on `http://127.0.0.1:8941/` by default and opens it in your browser.
+The dashboard now supports:
+
+- filtering by profile name
+- pause and resume actions for the whole service
+- pause and resume actions per profile
 
 For a deployed service under `C:\FolderSync`, these commands may need an elevated PowerShell window so they can update the control file in the install directory.
 
@@ -82,6 +89,23 @@ That snapshot includes:
 - latest reconciliation trigger, duration, exit meaning, and parsed robocopy summary
 
 Optional alert notifications can be configured under `FolderSync:Notifications` with a webhook URL and cooldown.
+Supported notification providers are:
+
+- `Generic`
+- `Slack`
+- `Teams`
+
+Example:
+
+```json
+"Notifications": {
+  "Enabled": true,
+  "Provider": "Slack",
+  "WebhookUrl": "https://hooks.slack.com/services/...",
+  "CooldownMinutes": 15,
+  "TitlePrefix": "FolderSync"
+}
+```
 
 ## Deletion Safety
 
@@ -115,6 +139,12 @@ The current next-frontier work is:
 - richer dashboard interactions, including profile filtering and operator actions
 - notification integrations and templates for tools like Slack or Teams
 - broader operator UX improvements built on the existing health and status APIs
+
+Current progress on `develop`:
+
+- profile-level pause and resume is implemented
+- dashboard filtering and pause/resume actions are implemented
+- Slack/Teams notification payload templates are implemented
 
 ## Local Deployment
 

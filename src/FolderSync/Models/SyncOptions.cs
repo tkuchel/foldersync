@@ -281,6 +281,8 @@ public sealed class ExclusionOptions
 public sealed class NotificationOptions
 {
     public bool Enabled { get; set; }
+    public string Provider { get; set; } = "Generic";
     public string WebhookUrl { get; set; } = string.Empty;
     public int CooldownMinutes { get; set; } = 15;
+    public string TitlePrefix { get; set; } = "FolderSync";
 }

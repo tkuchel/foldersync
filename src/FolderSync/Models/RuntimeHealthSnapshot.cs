@@ -17,6 +17,9 @@ public sealed class ProfileHealthSnapshot
 {
     public required string Name { get; init; }
     public string State { get; set; } = "Starting";
+    public bool IsPaused { get; set; }
+    public string? PauseReason { get; set; }
+    public DateTimeOffset? PausedAtUtc { get; set; }
     public long ProcessedCount { get; set; }
     public long SucceededCount { get; set; }
     public long SkippedCount { get; set; }
