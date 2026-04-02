@@ -70,10 +70,16 @@ public sealed class RobocopyService : IRobocopyService
         var dest = Quote(_options.DestinationPath);
 
         var args = $"{source} {dest}";
+        var customOptions = _options.Reconciliation.RobocopyOptions;
 
-        if (!string.IsNullOrWhiteSpace(_options.Reconciliation.RobocopyOptions))
+        if (!string.IsNullOrWhiteSpace(customOptions))
         {
-            args += $" {_options.Reconciliation.RobocopyOptions}";
+            args += $" {customOptions}";
+        }
+
+        if (!ContainsOption(customOptions, "/XJ"))
+        {
+            args += " /XJ";
         }
 
         // Add exclusions
@@ -126,6 +132,16 @@ public sealed class RobocopyService : IRobocopyService
         16 => "Fatal error — no files were copied",
         _ => $"Exit code {exitCode} (bits: {Convert.ToString(exitCode, 2)})"
     };
+
+    private static bool ContainsOption(string? options, string expectedOption)
+    {
+        if (string.IsNullOrWhiteSpace(options))
+            return false;
+
+        return options
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Any(token => string.Equals(token, expectedOption, StringComparison.OrdinalIgnoreCase));
+    }
 
     private static string Quote(string value) => $"\"{value}\"";
 }

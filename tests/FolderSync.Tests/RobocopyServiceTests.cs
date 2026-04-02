@@ -72,6 +72,35 @@ public sealed class RobocopyServiceTests
         Assert.Contains("/XF", capturedArgs);
         Assert.Contains("\"*.tmp\"", capturedArgs);
         Assert.Contains("\"*.__syncing\"", capturedArgs);
+        Assert.Contains("/XJ", capturedArgs);
+    }
+
+    [Fact]
+    public async Task Arguments_DoNotDuplicateXjOption()
+    {
+        var testToken = TestContext.Current.CancellationToken;
+        string? capturedArgs = null;
+
+        var options = TestOptions.Create(
+            "C:\\Source",
+            "C:\\Dest",
+            o => o.Reconciliation.RobocopyOptions = "/E /XJ /R:1");
+        var service = new RobocopyService(_processRunner, options, NullLogger<RobocopyService>.Instance);
+
+        _processRunner.RunAsync(
+            Arg.Any<string>(),
+            Arg.Do<string>(args => capturedArgs = args),
+            Arg.Any<CancellationToken>(),
+            Arg.Any<TimeSpan?>())
+            .Returns(new ProcessResult(0, "", ""));
+
+        await service.ReconcileAsync(testToken);
+
+        Assert.NotNull(capturedArgs);
+        var xjCount = capturedArgs
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Count(token => string.Equals(token, "/XJ", StringComparison.OrdinalIgnoreCase));
+        Assert.Single(Enumerable.Repeat("/XJ", xjCount));
     }
 
     [Fact]

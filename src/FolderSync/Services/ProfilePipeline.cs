@@ -50,6 +50,7 @@ public sealed class ProfilePipeline : IDisposable
         var opts = Options.Create(options);
 
         var pathMapping = new PathMappingService(opts);
+        var pathSafety = new PathSafetyService();
         var stabilityChecker = new StabilityChecker(opts, loggerFactory.CreateLogger<StabilityChecker>());
         var fileComparison = new FileComparisonService(fileHasher, opts, loggerFactory.CreateLogger<FileComparisonService>());
         var conflictResolver = new ConflictResolver(opts, loggerFactory.CreateLogger<ConflictResolver>());
@@ -57,9 +58,9 @@ public sealed class ProfilePipeline : IDisposable
         var fileOperations = new FileOperationService(retryService, opts, loggerFactory.CreateLogger<FileOperationService>());
         var robocopyService = new RobocopyService(processRunner, opts, loggerFactory.CreateLogger<RobocopyService>());
 
-        _watcher = new WatcherService(opts, pathMapping, clock, loggerFactory.CreateLogger<WatcherService>());
+        _watcher = new WatcherService(opts, pathMapping, pathSafety, clock, loggerFactory.CreateLogger<WatcherService>());
         _eventBuffer = new EventBufferService(pathMapping, clock, opts, loggerFactory.CreateLogger<EventBufferService>());
-        _syncProcessor = new SyncProcessor(stabilityChecker, fileComparison, conflictResolver, fileOperations, pathMapping, loggerFactory.CreateLogger<SyncProcessor>());
+        _syncProcessor = new SyncProcessor(stabilityChecker, fileComparison, conflictResolver, fileOperations, pathMapping, pathSafety, loggerFactory.CreateLogger<SyncProcessor>());
         _reconciliation = new ReconciliationService(robocopyService, opts, clock, loggerFactory.CreateLogger<ReconciliationService>());
     }
 

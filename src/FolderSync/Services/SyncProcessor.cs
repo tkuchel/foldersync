@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using FolderSync.Infrastructure;
 using FolderSync.Models;
 using Microsoft.Extensions.Logging;
 
@@ -16,6 +17,7 @@ public sealed class SyncProcessor : ISyncProcessor
     private readonly IConflictResolver _conflictResolver;
     private readonly IFileOperationService _fileOperations;
     private readonly IPathMappingService _pathMapping;
+    private readonly IPathSafetyService _pathSafety;
     private readonly ILogger<SyncProcessor> _logger;
 
     public SyncProcessor(
@@ -24,6 +26,7 @@ public sealed class SyncProcessor : ISyncProcessor
         IConflictResolver conflictResolver,
         IFileOperationService fileOperations,
         IPathMappingService pathMapping,
+        IPathSafetyService pathSafety,
         ILogger<SyncProcessor> logger)
     {
         _stabilityChecker = stabilityChecker;
@@ -31,6 +34,7 @@ public sealed class SyncProcessor : ISyncProcessor
         _conflictResolver = conflictResolver;
         _fileOperations = fileOperations;
         _pathMapping = pathMapping;
+        _pathSafety = pathSafety;
         _logger = logger;
     }
 
@@ -69,6 +73,12 @@ public sealed class SyncProcessor : ISyncProcessor
 
     private async Task<SyncResult> ProcessCreateOrUpdateAsync(SyncWorkItem workItem, CancellationToken ct)
     {
+        if (_pathSafety.IsReparsePoint(workItem.SourcePath))
+        {
+            _logger.LogWarning("Skipping reparse point at {Path}", workItem.SourcePath);
+            return new SyncResult(true, workItem, TimeSpan.Zero, "Skipped reparse point");
+        }
+
         // Handle directory creation
         if (workItem.IsDirectory)
         {
@@ -125,6 +135,12 @@ public sealed class SyncProcessor : ISyncProcessor
 
     private async Task<SyncResult> ProcessRenameAsync(SyncWorkItem workItem, CancellationToken ct)
     {
+        if (_pathSafety.IsReparsePoint(workItem.SourcePath))
+        {
+            _logger.LogWarning("Skipping reparse point rename at {Path}", workItem.SourcePath);
+            return new SyncResult(true, workItem, TimeSpan.Zero, "Skipped reparse point");
+        }
+
         // Wait for stability of the new file
         if (!workItem.IsDirectory)
         {

@@ -18,21 +18,28 @@ public static class ValidateConfigCommand
             Description = "Validate a specific profile only"
         };
 
+        var strictOption = new Option<bool>("--strict")
+        {
+            Description = "Treat risky settings and operator warnings as validation errors"
+        };
+
         var command = new Command("validate-config", "Validate FolderSync configuration and profile safety checks");
         command.Options.Add(configOption);
         command.Options.Add(profileOption);
+        command.Options.Add(strictOption);
 
         command.SetAction(parseResult =>
         {
             var configPath = parseResult.GetValue(configOption);
             var profileName = parseResult.GetValue(profileOption);
-            Execute(configPath, profileName);
+            var strict = parseResult.GetValue(strictOption);
+            Execute(configPath, profileName, strict);
         });
 
         return command;
     }
 
-    private static void Execute(string? configPath, string? profileName)
+    private static void Execute(string? configPath, string? profileName, bool strict)
     {
         try
         {
@@ -68,7 +75,9 @@ public static class ValidateConfigCommand
                 }
             }
 
-            var validation = ProfileConfigurationValidator.Validate(profiles);
+            var validation = ProfileConfigurationValidator.Validate(
+                profiles,
+                new ProfileValidationOptions { Strict = strict });
 
             foreach (var warning in validation.Warnings)
                 Console.WriteLine($"Warning: {warning.Message}");
@@ -85,6 +94,8 @@ public static class ValidateConfigCommand
             Console.WriteLine($"Configuration valid for {profiles.Count} profile(s).");
             if (validation.Warnings.Count > 0)
                 Console.WriteLine($"Completed with {validation.Warnings.Count} warning(s).");
+            if (strict)
+                Console.WriteLine("Strict validation enabled.");
         }
         catch (Exception ex)
         {

@@ -16,6 +16,7 @@ public sealed class WatcherService : IWatcherService
 {
     private readonly SyncOptions _options;
     private readonly IPathMappingService _pathMapping;
+    private readonly IPathSafetyService _pathSafety;
     private readonly IClock _clock;
     private readonly ILogger<WatcherService> _logger;
     private FileSystemWatcher? _watcher;
@@ -24,11 +25,13 @@ public sealed class WatcherService : IWatcherService
     public WatcherService(
         IOptions<SyncOptions> options,
         IPathMappingService pathMapping,
+        IPathSafetyService pathSafety,
         IClock clock,
         ILogger<WatcherService> logger)
     {
         _options = options.Value;
         _pathMapping = pathMapping;
+        _pathSafety = pathSafety;
         _clock = clock;
         _logger = logger;
     }
@@ -93,6 +96,12 @@ public sealed class WatcherService : IWatcherService
         if (_pathMapping.IsExcluded(e.FullPath) && _pathMapping.IsExcluded(e.OldFullPath))
             return;
 
+        if (_pathSafety.IsReparsePoint(e.FullPath) || _pathSafety.IsReparsePoint(e.OldFullPath))
+        {
+            _logger.LogWarning("Skipping reparse point rename event for {Path}", e.FullPath);
+            return;
+        }
+
         var watcherEvent = new WatcherEvent
         {
             Kind = WatcherChangeKind.Renamed,
@@ -134,6 +143,13 @@ public sealed class WatcherService : IWatcherService
     {
         if (_pathMapping.IsExcluded(fullPath))
             return;
+
+        if (kind is WatcherChangeKind.Created or WatcherChangeKind.Updated &&
+            _pathSafety.IsReparsePoint(fullPath))
+        {
+            _logger.LogWarning("Skipping reparse point event for {Path}", fullPath);
+            return;
+        }
 
         var watcherEvent = new WatcherEvent
         {

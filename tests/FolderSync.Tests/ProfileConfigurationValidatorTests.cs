@@ -70,4 +70,89 @@ public sealed class ProfileConfigurationValidatorTests : IDisposable
         Assert.False(result.HasErrors);
         Assert.Contains(result.Warnings, w => w.Message.Contains("overlapping source paths", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void Validate_ReturnsWarning_WhenSyncDeletionsEnabled()
+    {
+        var source = Path.Combine(_tempDir, "source");
+        Directory.CreateDirectory(source);
+
+        var profile = new ResolvedProfile("test", new SyncOptions
+        {
+            SourcePath = source,
+            DestinationPath = Path.Combine(_tempDir, "dest"),
+            SyncDeletions = true
+        });
+
+        var result = ProfileConfigurationValidator.Validate([profile]);
+
+        Assert.False(result.HasErrors);
+        Assert.Contains(result.Warnings, w => w.Message.Contains("SyncDeletions is enabled", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_StrictPromotesDeletionWarningToError()
+    {
+        var source = Path.Combine(_tempDir, "source");
+        Directory.CreateDirectory(source);
+
+        var profile = new ResolvedProfile("test", new SyncOptions
+        {
+            SourcePath = source,
+            DestinationPath = Path.Combine(_tempDir, "dest"),
+            SyncDeletions = true
+        });
+
+        var result = ProfileConfigurationValidator.Validate(
+            [profile],
+            new ProfileValidationOptions { Strict = true });
+
+        Assert.True(result.HasErrors);
+        Assert.Contains(result.Errors, e => e.Message.Contains("SyncDeletions is enabled", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenArchiveRootIsDriveRoot()
+    {
+        var source = Path.Combine(_tempDir, "source");
+        Directory.CreateDirectory(source);
+
+        var profile = new ResolvedProfile("test", new SyncOptions
+        {
+            SourcePath = source,
+            DestinationPath = Path.Combine(_tempDir, "dest"),
+            SyncDeletions = true,
+            DeleteMode = DeleteMode.Archive,
+            DeleteArchivePath = Path.GetPathRoot(_tempDir)!
+        });
+
+        var result = ProfileConfigurationValidator.Validate([profile]);
+
+        Assert.True(result.HasErrors);
+        Assert.Contains(result.Errors, e => e.Message.Contains("DeleteArchivePath cannot be a drive or share root", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_ReturnsWarning_WhenRobocopyUsesMirror()
+    {
+        var source = Path.Combine(_tempDir, "source");
+        Directory.CreateDirectory(source);
+
+        var profile = new ResolvedProfile("test", new SyncOptions
+        {
+            SourcePath = source,
+            DestinationPath = Path.Combine(_tempDir, "dest"),
+            Reconciliation = new ReconciliationOptions
+            {
+                Enabled = true,
+                UseRobocopy = true,
+                RobocopyOptions = "/E /MIR /XJ"
+            }
+        });
+
+        var result = ProfileConfigurationValidator.Validate([profile]);
+
+        Assert.False(result.HasErrors);
+        Assert.Contains(result.Warnings, w => w.Message.Contains("/MIR", StringComparison.Ordinal));
+    }
 }
