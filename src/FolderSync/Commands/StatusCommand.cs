@@ -2,11 +2,19 @@ using System.Runtime.Versioning;
 using System.CommandLine;
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace FolderSync.Commands;
 
 public static class StatusCommand
 {
+    internal sealed record RecentActivitySummary(
+        string? LastReconcile,
+        string? LastSync,
+        string? LastLifecycle,
+        string? LastWarning,
+        string? LastError);
+
     public static Command Create()
     {
         var nameOption = new Option<string>("--name")
@@ -149,19 +157,24 @@ public static class StatusCommand
         Console.WriteLine($"Recent log: {latestLog.Name} ({latestLog.LastWriteTime})");
 
         var logLines = ReadTail(latestLog.FullName, 200);
-        var lastError = logLines.LastOrDefault(line => line.Contains("[ERR]") || line.Contains("[FTL]"));
-        var lastWarning = logLines.LastOrDefault(line => line.Contains("[WRN]"));
-        var lastReconcile = logLines.LastOrDefault(line => line.Contains("Reconciliation completed", StringComparison.OrdinalIgnoreCase));
-        var lastSync = logLines.LastOrDefault(line => line.Contains("Synced ", StringComparison.OrdinalIgnoreCase));
+        if (logLines.Count == 0)
+        {
+            Console.WriteLine("Recent activity: unavailable");
+            return;
+        }
 
-        if (lastReconcile is not null)
-            Console.WriteLine($"Last reconcile: {TrimLogLine(lastReconcile)}");
-        if (lastSync is not null)
-            Console.WriteLine($"Last sync:      {TrimLogLine(lastSync)}");
-        if (lastWarning is not null)
-            Console.WriteLine($"Last warning:   {TrimLogLine(lastWarning)}");
-        if (lastError is not null)
-            Console.WriteLine($"Last error:     {TrimLogLine(lastError)}");
+        var activity = SummarizeRecentActivity(logLines);
+
+        if (activity.LastReconcile is not null)
+            Console.WriteLine($"Last reconcile: {TrimLogLine(activity.LastReconcile)}");
+        if (activity.LastSync is not null)
+            Console.WriteLine($"Last sync:      {TrimLogLine(activity.LastSync)}");
+        if (activity.LastLifecycle is not null)
+            Console.WriteLine($"Last lifecycle: {TrimLogLine(activity.LastLifecycle)}");
+        if (activity.LastWarning is not null)
+            Console.WriteLine($"Last warning:   {TrimLogLine(activity.LastWarning)}");
+        if (activity.LastError is not null)
+            Console.WriteLine($"Last error:     {TrimLogLine(activity.LastError)}");
     }
 
     private static string? ParseState(string scOutput)
@@ -254,7 +267,22 @@ public static class StatusCommand
     {
         try
         {
-            return File.ReadLines(path).TakeLast(maxLines).ToList();
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+
+            var lines = new Queue<string>(maxLines);
+            while (reader.ReadLine() is { } line)
+            {
+                if (lines.Count == maxLines)
+                    lines.Dequeue();
+                lines.Enqueue(line);
+            }
+
+            return lines.ToList();
         }
         catch
         {
@@ -269,5 +297,50 @@ public static class StatusCommand
         return trimmed.Length <= maxLength
             ? trimmed
             : trimmed[..(maxLength - 3)] + "...";
+    }
+
+    private static bool ContainsAny(string line, params string[] patterns)
+    {
+        return patterns.Any(pattern => line.Contains(pattern, StringComparison.OrdinalIgnoreCase));
+    }
+
+    internal static RecentActivitySummary SummarizeRecentActivity(IEnumerable<string> logLines)
+    {
+        var lines = logLines
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .ToList();
+
+        return new RecentActivitySummary(
+            LastReconcile: lines.LastOrDefault(line => ContainsAny(line, "Reconciliation completed", "Starting reconciliation")),
+            LastSync: lines.LastOrDefault(line => ContainsAny(line, "Synced ", "Copied ")),
+            LastLifecycle: lines.LastOrDefault(line =>
+                line.Contains("FolderSync starting", StringComparison.OrdinalIgnoreCase) ||
+                line.Contains("FolderSync shutting down", StringComparison.OrdinalIgnoreCase) ||
+                line.Contains("Pipeline running", StringComparison.OrdinalIgnoreCase)),
+            LastWarning: lines.LastOrDefault(IsWarningLine),
+            LastError: lines.LastOrDefault(IsErrorLine));
+    }
+
+    private static bool IsWarningLine(string line)
+    {
+        return line.Contains("[WRN]", StringComparison.OrdinalIgnoreCase) ||
+            ContainsAny(line, "warning", "skipping");
+    }
+
+    private static bool IsErrorLine(string line)
+    {
+        if (line.Contains("[ERR]", StringComparison.OrdinalIgnoreCase) ||
+            line.Contains("[FTL]", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (line.Contains("[WRN]", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return Regex.IsMatch(
+            line,
+            @"\b(error|exception|fatal|crash(ed)?|unhandled)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 }
