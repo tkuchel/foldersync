@@ -80,6 +80,49 @@ public sealed class RuntimeHealthStoreTests
             Assert.Equal("Extra files or directories detected", profile.Reconciliation.LastExitDescription);
             Assert.Equal(5, profile.Reconciliation.LastSummary!.FilesCopied);
             Assert.Equal(3000d, profile.Reconciliation.LastDurationMs);
+            Assert.NotEmpty(profile.RecentActivities);
+            Assert.Contains(profile.RecentActivities, activity => activity.Kind == "sync");
+            Assert.Contains(profile.RecentActivities, activity => activity.Kind == "failure");
+            Assert.Contains(profile.RecentActivities, activity => activity.Kind == "overflow");
+            Assert.Contains(profile.RecentActivities, activity => activity.Kind == "reconcile");
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Store_Trims_Profile_Activity_History()
+    {
+        var clock = new FakeClock();
+        var tempDir = Directory.CreateTempSubdirectory();
+
+        try
+        {
+            var snapshotPath = Path.Combine(tempDir.FullName, "foldersync-health.json");
+            var store = new RuntimeHealthStore(snapshotPath, clock, new FakeAlertNotifier(), NullLogger<RuntimeHealthStore>.Instance);
+            store.Initialize(["alpha"]);
+
+            for (var i = 0; i < 15; i++)
+            {
+                var workItem = new SyncWorkItem
+                {
+                    Kind = WatcherChangeKind.Created,
+                    SourcePath = $@"C:\source\file-{i}.txt",
+                    DestinationPath = $@"C:\dest\file-{i}.txt"
+                };
+
+                store.RecordSyncResult("alpha", new SyncResult(true, workItem, TimeSpan.Zero));
+                clock.Advance(TimeSpan.FromSeconds(1));
+            }
+
+            var snapshot = StatusCommand.TryReadRuntimeHealthSnapshot(snapshotPath);
+            var profile = Assert.Single(snapshot!.Profiles);
+
+            Assert.Equal(12, profile.RecentActivities.Count);
+            Assert.Contains("file-14.txt", profile.RecentActivities[0].Summary);
+            Assert.DoesNotContain(profile.RecentActivities, activity => activity.Summary.Contains("file-0.txt", StringComparison.Ordinal));
         }
         finally
         {

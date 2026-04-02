@@ -46,6 +46,8 @@ The dashboard now supports:
 - filtering by profile name
 - pause and resume actions for the whole service
 - pause and resume actions per profile
+- per-profile recent activity history
+- one-click profile reconciliation from the installed service
 
 For a deployed service under `C:\FolderSync`, these commands may need an elevated PowerShell window so they can update the control file in the install directory.
 
@@ -145,6 +147,7 @@ Current progress on `develop`:
 - profile-level pause and resume is implemented
 - dashboard filtering and pause/resume actions are implemented
 - Slack/Teams notification payload templates are implemented
+- dashboard profile activity history and one-click reconcile actions are implemented
 
 ## Local Deployment
 
