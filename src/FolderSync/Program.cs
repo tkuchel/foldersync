@@ -9,6 +9,7 @@ rootCommand.Subcommands.Add(PauseCommand.Create());
 rootCommand.Subcommands.Add(ResumeCommand.Create());
 rootCommand.Subcommands.Add(StatusCommand.Create());
 rootCommand.Subcommands.Add(HealthCommand.Create());
+rootCommand.Subcommands.Add(DashboardCommand.Create());
 rootCommand.Subcommands.Add(ReconcileCommand.Create());
 rootCommand.Subcommands.Add(ValidateConfigCommand.Create());
 

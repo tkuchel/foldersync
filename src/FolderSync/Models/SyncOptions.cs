@@ -20,6 +20,11 @@ public sealed class FolderSyncConfig
     /// </summary>
     public List<SyncProfileConfig> Profiles { get; set; } = [];
 
+    /// <summary>
+    /// Optional alert notifications for runtime health events.
+    /// </summary>
+    public NotificationOptions Notifications { get; set; } = new();
+
     // Backward compat: root-level SourcePath/DestinationPath
     // If Profiles is empty but these are set, creates an implicit "default" profile.
     public string SourcePath { get; set; } = string.Empty;
@@ -271,4 +276,11 @@ public sealed class ExclusionOptions
     public List<string> DirectoryNames { get; set; } = [];
     public List<string> FilePatterns { get; set; } = [];
     public List<string> Extensions { get; set; } = [];
+}
+
+public sealed class NotificationOptions
+{
+    public bool Enabled { get; set; }
+    public string WebhookUrl { get; set; } = string.Empty;
+    public int CooldownMinutes { get; set; } = 15;
 }

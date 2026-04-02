@@ -20,7 +20,7 @@ public sealed class ReconciliationServiceTests
         try
         {
             var healthPath = Path.Combine(tempDir.FullName, "foldersync-health.json");
-            var healthStore = new RuntimeHealthStore(healthPath, clock, NullLogger<RuntimeHealthStore>.Instance);
+            var healthStore = new RuntimeHealthStore(healthPath, clock, new FakeAlertNotifier(), NullLogger<RuntimeHealthStore>.Instance);
             healthStore.Initialize(["alpha"]);
             healthStore.RecordServiceStarted();
             healthStore.RecordProfileState("alpha", "Running");

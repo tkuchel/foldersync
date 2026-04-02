@@ -32,18 +32,20 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
 
     private readonly object _gate = new();
     private readonly IClock _clock;
+    private readonly IAlertNotifier _alertNotifier;
     private readonly ILogger<RuntimeHealthStore> _logger;
     private RuntimeHealthSnapshot _snapshot;
 
-    public RuntimeHealthStore(IClock clock, ILogger<RuntimeHealthStore> logger)
-        : this(Path.Combine(Environment.CurrentDirectory, "foldersync-health.json"), clock, logger)
+    public RuntimeHealthStore(IClock clock, IAlertNotifier alertNotifier, ILogger<RuntimeHealthStore> logger)
+        : this(Path.Combine(Environment.CurrentDirectory, "foldersync-health.json"), clock, alertNotifier, logger)
     {
     }
 
-    internal RuntimeHealthStore(string snapshotPath, IClock clock, ILogger<RuntimeHealthStore> logger)
+    internal RuntimeHealthStore(string snapshotPath, IClock clock, IAlertNotifier alertNotifier, ILogger<RuntimeHealthStore> logger)
     {
         SnapshotPath = snapshotPath;
         _clock = clock;
+        _alertNotifier = alertNotifier;
         _logger = logger;
         _snapshot = new RuntimeHealthSnapshot
         {
@@ -242,6 +244,14 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
         {
             _logger.LogWarning(newMessage);
             profile.LastAlertUtc = _clock.UtcNow;
+            _alertNotifier.Publish(new AlertNotification
+            {
+                ServiceName = _snapshot.ServiceName,
+                ProfileName = profile.Name,
+                Level = newLevel ?? "warning",
+                Message = newMessage,
+                TimestampUtc = profile.LastAlertUtc.Value
+            });
         }
 
         profile.AlertLevel = newLevel;

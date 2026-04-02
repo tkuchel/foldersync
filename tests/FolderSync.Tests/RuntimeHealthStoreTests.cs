@@ -18,7 +18,7 @@ public sealed class RuntimeHealthStoreTests
         try
         {
             var snapshotPath = Path.Combine(tempDir.FullName, "foldersync-health.json");
-            var store = new RuntimeHealthStore(snapshotPath, clock, NullLogger<RuntimeHealthStore>.Instance);
+            var store = new RuntimeHealthStore(snapshotPath, clock, new FakeAlertNotifier(), NullLogger<RuntimeHealthStore>.Instance);
 
             store.Initialize(["alpha"]);
             store.RecordServiceStarted();
@@ -96,7 +96,8 @@ public sealed class RuntimeHealthStoreTests
         try
         {
             var snapshotPath = Path.Combine(tempDir.FullName, "foldersync-health.json");
-            var store = new RuntimeHealthStore(snapshotPath, clock, NullLogger<RuntimeHealthStore>.Instance);
+            var notifier = new FakeAlertNotifier();
+            var store = new RuntimeHealthStore(snapshotPath, clock, notifier, NullLogger<RuntimeHealthStore>.Instance);
             store.Initialize(["alpha"]);
 
             var workItem = new SyncWorkItem
@@ -115,6 +116,7 @@ public sealed class RuntimeHealthStoreTests
             Assert.Equal("warning", profile.AlertLevel);
             Assert.Contains("consecutive failed sync operations", profile.AlertMessage);
             Assert.NotNull(profile.LastAlertUtc);
+            Assert.Single(notifier.Notifications);
         }
         finally
         {

@@ -70,6 +70,8 @@ public static class HostBuilderHelper
 
         // Shared infrastructure
         builder.Services.AddSingleton<IClock, SystemClock>();
+        builder.Services.AddSingleton(new HttpClient());
+        builder.Services.AddSingleton<IAlertNotifier, AlertNotifier>();
         builder.Services.AddSingleton<IFileHasher, Sha256FileHasher>();
         builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
         builder.Services.AddSingleton<IPathSafetyService, PathSafetyService>();

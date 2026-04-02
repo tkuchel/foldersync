@@ -25,6 +25,7 @@ foldersync health
 foldersync health --json
 foldersync pause --reason "Maintenance window"
 foldersync resume
+foldersync dashboard
 ```
 
 `status --verbose` is the best human-oriented operator view.
@@ -36,6 +37,8 @@ foldersync resume
 `health --json` emits a smaller machine-friendly payload for scripts, automation, and dashboards.
 
 `pause` and `resume` control the running service through a persisted control file.
+
+`dashboard` starts a lightweight local web dashboard on `http://127.0.0.1:8941/` by default and opens it in your browser.
 
 For a deployed service under `C:\FolderSync`, these commands may need an elevated PowerShell window so they can update the control file in the install directory.
 
@@ -77,6 +80,8 @@ That snapshot includes:
 - last successful sync and last failure
 - repeated-failure / repeated-overflow alerts
 - latest reconciliation trigger, duration, exit meaning, and parsed robocopy summary
+
+Optional alert notifications can be configured under `FolderSync:Notifications` with a webhook URL and cooldown.
 
 ## Deletion Safety
 
