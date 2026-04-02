@@ -38,6 +38,7 @@ public sealed class RobocopyServiceTests
     [InlineData(16, false)] // Fatal error
     public async Task ExitCode_InterpretedCorrectly(int exitCode, bool expectedSuccess)
     {
+        var testToken = TestContext.Current.CancellationToken;
         _processRunner.RunAsync(
             Arg.Any<string>(),
             Arg.Any<string>(),
@@ -45,7 +46,7 @@ public sealed class RobocopyServiceTests
             Arg.Any<TimeSpan?>())
             .Returns(new ProcessResult(exitCode, "", ""));
 
-        var result = await _service.ReconcileAsync();
+        var result = await _service.ReconcileAsync(testToken);
 
         Assert.Equal(expectedSuccess, result.Success);
         Assert.Equal(exitCode, result.ExitCode);
@@ -54,6 +55,7 @@ public sealed class RobocopyServiceTests
     [Fact]
     public async Task Arguments_IncludeExclusions()
     {
+        var testToken = TestContext.Current.CancellationToken;
         string? capturedArgs = null;
         _processRunner.RunAsync(
             Arg.Any<string>(),
@@ -62,7 +64,7 @@ public sealed class RobocopyServiceTests
             Arg.Any<TimeSpan?>())
             .Returns(new ProcessResult(0, "", ""));
 
-        await _service.ReconcileAsync();
+        await _service.ReconcileAsync(testToken);
 
         Assert.NotNull(capturedArgs);
         Assert.Contains("/XD", capturedArgs);
@@ -75,10 +77,11 @@ public sealed class RobocopyServiceTests
     [Fact]
     public async Task DryRun_SkipsExecution()
     {
+        var testToken = TestContext.Current.CancellationToken;
         var options = TestOptions.Create("C:\\Source", "C:\\Dest", o => o.DryRun = true);
         var service = new RobocopyService(_processRunner, options, NullLogger<RobocopyService>.Instance);
 
-        var result = await service.ReconcileAsync();
+        var result = await service.ReconcileAsync(testToken);
 
         Assert.True(result.Success);
         await _processRunner.DidNotReceive().RunAsync(

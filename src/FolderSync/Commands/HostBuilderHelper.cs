@@ -29,7 +29,7 @@ public static class HostBuilderHelper
         // Custom config file support
         if (!string.IsNullOrWhiteSpace(configPath))
         {
-            builder.Configuration.AddJsonFile(configPath, optional: false, reloadOnChange: true);
+            builder.Configuration.AddJsonFile(Path.GetFullPath(configPath), optional: false, reloadOnChange: true);
         }
 
         // Serilog

@@ -31,10 +31,11 @@ public sealed class FileComparisonServiceTests : IDisposable
     [Fact]
     public async Task Compare_MissingDestination()
     {
+        var testToken = TestContext.Current.CancellationToken;
         var source = CreateFile("source.txt", "content");
         var dest = Path.Combine(_tempDir, "nonexistent.txt");
 
-        var result = await _service.CompareAsync(source, dest);
+        var result = await _service.CompareAsync(source, dest, testToken);
 
         Assert.Equal(FileComparisonResult.MissingDestination, result);
     }
@@ -42,6 +43,7 @@ public sealed class FileComparisonServiceTests : IDisposable
     [Fact]
     public async Task Compare_SameContent_SameTimestamp()
     {
+        var testToken = TestContext.Current.CancellationToken;
         var source = CreateFile("source.txt", "content");
         var dest = CreateFile("dest.txt", "content");
 
@@ -50,7 +52,7 @@ public sealed class FileComparisonServiceTests : IDisposable
         File.SetLastWriteTimeUtc(source, time);
         File.SetLastWriteTimeUtc(dest, time);
 
-        var result = await _service.CompareAsync(source, dest);
+        var result = await _service.CompareAsync(source, dest, testToken);
 
         Assert.Equal(FileComparisonResult.Same, result);
     }
@@ -58,10 +60,11 @@ public sealed class FileComparisonServiceTests : IDisposable
     [Fact]
     public async Task Compare_DifferentSize()
     {
+        var testToken = TestContext.Current.CancellationToken;
         var source = CreateFile("source.txt", "long content here");
         var dest = CreateFile("dest.txt", "short");
 
-        var result = await _service.CompareAsync(source, dest);
+        var result = await _service.CompareAsync(source, dest, testToken);
 
         Assert.Equal(FileComparisonResult.DifferentContent, result);
     }
@@ -69,6 +72,7 @@ public sealed class FileComparisonServiceTests : IDisposable
     [Fact]
     public async Task Compare_SameSize_DifferentTimestamp_SameHash()
     {
+        var testToken = TestContext.Current.CancellationToken;
         var source = CreateFile("source.txt", "content");
         var dest = CreateFile("dest.txt", "content");
 
@@ -79,7 +83,7 @@ public sealed class FileComparisonServiceTests : IDisposable
         _hasher.ComputeHashAsync(source, Arg.Any<CancellationToken>()).Returns("abc123");
         _hasher.ComputeHashAsync(dest, Arg.Any<CancellationToken>()).Returns("abc123");
 
-        var result = await _service.CompareAsync(source, dest);
+        var result = await _service.CompareAsync(source, dest, testToken);
 
         Assert.Equal(FileComparisonResult.DifferentMetadataOnly, result);
     }
@@ -87,6 +91,7 @@ public sealed class FileComparisonServiceTests : IDisposable
     [Fact]
     public async Task Compare_SameSize_DifferentTimestamp_DifferentHash()
     {
+        var testToken = TestContext.Current.CancellationToken;
         var source = CreateFile("source.txt", "content1");
         var dest = CreateFile("dest.txt", "content2");
 
@@ -100,7 +105,7 @@ public sealed class FileComparisonServiceTests : IDisposable
         _hasher.ComputeHashAsync(source, Arg.Any<CancellationToken>()).Returns("hash1");
         _hasher.ComputeHashAsync(dest, Arg.Any<CancellationToken>()).Returns("hash2");
 
-        var result = await _service.CompareAsync(source, dest);
+        var result = await _service.CompareAsync(source, dest, testToken);
 
         Assert.Equal(FileComparisonResult.DifferentContent, result);
     }

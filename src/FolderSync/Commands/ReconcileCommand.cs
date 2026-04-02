@@ -44,25 +44,22 @@ public static class ReconcileCommand
 
         try
         {
+            var resolvedConfigPath = !string.IsNullOrWhiteSpace(configPath)
+                ? Path.GetFullPath(configPath)
+                : null;
+
             var configBuilder = new ConfigurationBuilder()
                 .SetBasePath(AppContext.BaseDirectory)
                 .AddJsonFile("appsettings.json", optional: false);
 
-            if (!string.IsNullOrWhiteSpace(configPath))
-                configBuilder.AddJsonFile(configPath, optional: false);
+            if (!string.IsNullOrWhiteSpace(resolvedConfigPath))
+                configBuilder.AddJsonFile(resolvedConfigPath, optional: false);
 
             var configuration = configBuilder.Build();
             var config = new FolderSyncConfig();
             configuration.GetSection(FolderSyncConfig.SectionName).Bind(config);
 
             var profiles = config.ResolveProfiles();
-
-            if (profiles.Count == 0)
-            {
-                Log.Error("No sync profiles configured");
-                Environment.ExitCode = 1;
-                return;
-            }
 
             if (!string.IsNullOrWhiteSpace(profileName))
             {
@@ -76,6 +73,17 @@ public static class ReconcileCommand
                     Environment.ExitCode = 1;
                     return;
                 }
+            }
+
+            var validation = ProfileConfigurationValidator.Validate(profiles);
+            foreach (var warning in validation.Warnings)
+                Log.Warning("{Message}", warning.Message);
+            if (validation.HasErrors)
+            {
+                foreach (var error in validation.Errors)
+                    Log.Error("{Message}", error.Message);
+                Environment.ExitCode = 1;
+                return;
             }
 
             var processRunner = new ProcessRunner();

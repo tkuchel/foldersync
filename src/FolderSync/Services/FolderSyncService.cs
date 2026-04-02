@@ -45,7 +45,15 @@ public sealed class FolderSyncService : BackgroundService
             return;
         }
 
-        ValidateProfiles(profiles);
+        var validation = ProfileConfigurationValidator.Validate(profiles);
+        foreach (var warning in validation.Warnings)
+            _logger.LogWarning(warning.Message);
+        if (validation.HasErrors)
+        {
+            foreach (var error in validation.Errors)
+                _logger.LogError(error.Message);
+            return;
+        }
 
         _logger.LogInformation("FolderSync starting with {Count} profile(s): {Names}",
             profiles.Count, string.Join(", ", profiles.Select(p => p.Name)));
@@ -82,45 +90,6 @@ public sealed class FolderSyncService : BackgroundService
             foreach (var pipeline in _pipelines)
                 pipeline.Dispose();
             _pipelines.Clear();
-        }
-    }
-
-    private void ValidateProfiles(List<ResolvedProfile> profiles)
-    {
-        // Check for duplicate names
-        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var profile in profiles)
-        {
-            if (!names.Add(profile.Name))
-                throw new InvalidOperationException($"Duplicate profile name: '{profile.Name}'");
-        }
-
-        // Check for overlapping source paths
-        var sourcePaths = profiles
-            .Select(p => (p.Name, Path: Path.GetFullPath(p.Options.SourcePath)))
-            .ToList();
-
-        for (int i = 0; i < sourcePaths.Count; i++)
-        {
-            for (int j = i + 1; j < sourcePaths.Count; j++)
-            {
-                var a = sourcePaths[i];
-                var b = sourcePaths[j];
-
-                if (string.Equals(a.Path, b.Path, StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new InvalidOperationException(
-                        $"Profiles '{a.Name}' and '{b.Name}' share the same source path: {a.Path}");
-                }
-
-                if (a.Path.StartsWith(b.Path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
-                    b.Path.StartsWith(a.Path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                {
-                    _logger.LogWarning(
-                        "Profiles '{ProfileA}' and '{ProfileB}' have overlapping source paths: {PathA}, {PathB}",
-                        a.Name, b.Name, a.Path, b.Path);
-                }
-            }
         }
     }
 }

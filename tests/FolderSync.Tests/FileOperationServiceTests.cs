@@ -26,6 +26,7 @@ public sealed class FileOperationServiceTests : IDisposable
     [Fact]
     public async Task CopyFileAsync_ThrowsWhenDestinationEscapesManagedRoot()
     {
+        var testToken = TestContext.Current.CancellationToken;
         var source = Path.Combine(_tempDir, "source.txt");
         File.WriteAllText(source, "content");
 
@@ -33,21 +34,23 @@ public sealed class FileOperationServiceTests : IDisposable
         var escapedDestination = Path.Combine(_tempDir, "dest2", "file.txt");
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.CopyFileAsync(source, escapedDestination));
+            service.CopyFileAsync(source, escapedDestination, testToken));
     }
 
     [Fact]
     public async Task DeleteOrArchiveAsync_ThrowsWhenTargetIsManagedRoot()
     {
+        var testToken = TestContext.Current.CancellationToken;
         var service = CreateService(syncDeletions: true);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.DeleteOrArchiveAsync(_destinationRoot, "file.txt"));
+            service.DeleteOrArchiveAsync(_destinationRoot, "file.txt", testToken));
     }
 
     [Fact]
     public async Task DeleteOrArchiveAsync_ThrowsWhenArchiveRootIsDriveRoot()
     {
+        var testToken = TestContext.Current.CancellationToken;
         var target = Path.Combine(_destinationRoot, "file.txt");
         File.WriteAllText(target, "content");
 
@@ -59,7 +62,7 @@ public sealed class FileOperationServiceTests : IDisposable
         });
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.DeleteOrArchiveAsync(target, "file.txt"));
+            service.DeleteOrArchiveAsync(target, "file.txt", testToken));
     }
 
     private FileOperationService CreateService(

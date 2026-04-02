@@ -15,6 +15,7 @@ It supports:
 ```powershell
 foldersync run
 foldersync reconcile
+foldersync validate-config
 foldersync install
 foldersync uninstall
 foldersync status
@@ -34,8 +35,9 @@ The checked-in `appsettings.json` is a safe example. Replace the example paths w
 1. Update the source and destination paths in `src/FolderSync/appsettings.json`.
 2. Start with `"DryRun": true` while validating behavior.
 3. Run `foldersync reconcile --config <your-config>` to test a one-shot sync.
-4. Review the destination and logs.
-5. Only enable deletion sync after you are confident the mapping is correct.
+4. Run `foldersync validate-config --config <your-config>` to verify profile safety checks.
+5. Review the destination and logs.
+6. Only enable deletion sync after you are confident the mapping is correct.
 
 ## Deletion Safety
 

@@ -26,10 +26,12 @@ public sealed class EventBufferServiceTests
     [Fact]
     public async Task OverflowEvents_PassThroughImmediately()
     {
+        var testToken = TestContext.Current.CancellationToken;
         var input = Channel.CreateUnbounded<WatcherEvent>();
         var output = Channel.CreateUnbounded<SyncWorkItem>();
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(testToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(5));
 
         var overflowEvent = new WatcherEvent
         {
@@ -38,20 +40,20 @@ public sealed class EventBufferServiceTests
             Timestamp = _clock.UtcNow
         };
 
-        await input.Writer.WriteAsync(overflowEvent);
+        await input.Writer.WriteAsync(overflowEvent, testToken);
         input.Writer.Complete();
 
         var runTask = _service.RunAsync(input.Reader, output.Writer, cts.Token);
 
         // Wait a bit for processing
-        await Task.Delay(200);
+        await Task.Delay(200, testToken);
         cts.Cancel();
 
         try { await runTask; } catch (OperationCanceledException) { }
 
         output.Writer.Complete();
         var items = new List<SyncWorkItem>();
-        await foreach (var item in output.Reader.ReadAllAsync())
+        await foreach (var item in output.Reader.ReadAllAsync(testToken))
             items.Add(item);
 
         Assert.Contains(items, i => i.Kind == WatcherChangeKind.Overflow);
@@ -60,10 +62,12 @@ public sealed class EventBufferServiceTests
     [Fact]
     public async Task ReconcileEvents_PassThroughImmediately()
     {
+        var testToken = TestContext.Current.CancellationToken;
         var input = Channel.CreateUnbounded<WatcherEvent>();
         var output = Channel.CreateUnbounded<SyncWorkItem>();
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(testToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(5));
 
         var reconcileEvent = new WatcherEvent
         {
@@ -72,19 +76,19 @@ public sealed class EventBufferServiceTests
             Timestamp = _clock.UtcNow
         };
 
-        await input.Writer.WriteAsync(reconcileEvent);
+        await input.Writer.WriteAsync(reconcileEvent, testToken);
         input.Writer.Complete();
 
         var runTask = _service.RunAsync(input.Reader, output.Writer, cts.Token);
 
-        await Task.Delay(200);
+        await Task.Delay(200, testToken);
         cts.Cancel();
 
         try { await runTask; } catch (OperationCanceledException) { }
 
         output.Writer.Complete();
         var items = new List<SyncWorkItem>();
-        await foreach (var item in output.Reader.ReadAllAsync())
+        await foreach (var item in output.Reader.ReadAllAsync(testToken))
             items.Add(item);
 
         Assert.Contains(items, i => i.Kind == WatcherChangeKind.ReconcileRequested);
@@ -93,10 +97,12 @@ public sealed class EventBufferServiceTests
     [Fact]
     public async Task SingleEvent_FlushesAfterDebounceWindow()
     {
+        var testToken = TestContext.Current.CancellationToken;
         var input = Channel.CreateUnbounded<WatcherEvent>();
         var output = Channel.CreateUnbounded<SyncWorkItem>();
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(testToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(5));
 
         var evt = new WatcherEvent
         {
@@ -105,7 +111,7 @@ public sealed class EventBufferServiceTests
             Timestamp = _clock.UtcNow
         };
 
-        await input.Writer.WriteAsync(evt);
+        await input.Writer.WriteAsync(evt, testToken);
         input.Writer.Complete();
 
         // Advance clock past debounce window
@@ -113,14 +119,14 @@ public sealed class EventBufferServiceTests
 
         var runTask = _service.RunAsync(input.Reader, output.Writer, cts.Token);
 
-        await Task.Delay(500);
+        await Task.Delay(500, testToken);
         cts.Cancel();
 
         try { await runTask; } catch (OperationCanceledException) { }
 
         output.Writer.Complete();
         var items = new List<SyncWorkItem>();
-        await foreach (var item in output.Reader.ReadAllAsync())
+        await foreach (var item in output.Reader.ReadAllAsync(testToken))
             items.Add(item);
 
         Assert.Single(items);
