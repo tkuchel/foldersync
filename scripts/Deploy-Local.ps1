@@ -57,6 +57,28 @@ function Invoke-RobocopyCopy {
     }
 }
 
+function Remove-StalePublishDirectories {
+    param(
+        [Parameter(Mandatory = $true)][string]$TempRoot,
+        [Parameter(Mandatory = $true)][string]$CurrentPublishDir
+    )
+
+    $staleDirectories = Get-ChildItem -Path $TempRoot -Directory -Filter "foldersync-publish-*" -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -ne $CurrentPublishDir }
+
+    foreach ($directory in $staleDirectories) {
+        try {
+            if ($PSCmdlet.ShouldProcess($directory.FullName, "Remove stale publish directory")) {
+                Remove-Item -LiteralPath $directory.FullName -Recurse -Force -ErrorAction Stop
+                Write-Host "Removed stale publish directory $($directory.FullName)"
+            }
+        }
+        catch {
+            Write-Warning "Could not remove stale publish directory '$($directory.FullName)': $($_.Exception.Message)"
+        }
+    }
+}
+
 $repoRoot = if ([string]::IsNullOrWhiteSpace($PSScriptRoot)) {
     (Get-Location).Path
 }
@@ -66,7 +88,8 @@ else {
 $solutionPath = Join-Path $repoRoot "FolderSync.slnx"
 $projectPath = Join-Path $repoRoot "src\FolderSync\FolderSync.csproj"
 $targetDir = Assert-SafeTargetDirectory -Path $TargetDir
-$publishDir = Join-Path ([System.IO.Path]::GetTempPath()) ("foldersync-publish-" + [guid]::NewGuid().ToString("N"))
+$tempRoot = [System.IO.Path]::GetTempPath()
+$publishDir = Join-Path $tempRoot ("foldersync-publish-" + [guid]::NewGuid().ToString("N"))
 $wasRunning = $false
 $isAdministrator = Test-IsAdministrator
 
@@ -83,6 +106,8 @@ try {
     if (-not (Test-Path $targetConfigPath)) {
         throw "Target config not found: $targetConfigPath"
     }
+
+    Remove-StalePublishDirectories -TempRoot $tempRoot -CurrentPublishDir $publishDir
 
     if (-not $SkipTests) {
         Write-Host "Running test suite..."
