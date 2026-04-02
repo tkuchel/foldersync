@@ -100,6 +100,22 @@ dotnet test FolderSync.slnx --nologo
 
 The repo ignores generated output like `bin/`, `obj/`, logs, IDE state, and local Codex/Claude workspace files.
 
+## Branching
+
+- `main` is the stable branch for tested, deployable changes.
+- `develop` is the integration branch for ongoing feature work and product experiments.
+- New feature batches should land on `develop` first, then be promoted to `main` once they are verified and ready to deploy.
+- Operational fixes that must go live quickly can still land on `main`, but should be merged or replayed back into `develop` so both branches stay aligned.
+
+## Roadmap
+
+The current next-frontier work is:
+
+- profile-level pause and resume controls instead of only global pause/resume
+- richer dashboard interactions, including profile filtering and operator actions
+- notification integrations and templates for tools like Slack or Teams
+- broader operator UX improvements built on the existing health and status APIs
+
 ## Local Deployment
 
 For the installed service in `C:\FolderSync`, use:
