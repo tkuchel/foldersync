@@ -177,6 +177,7 @@ public static class StatusCommand
 
         var healthPath = Path.Combine(installDir, "foldersync-health.json");
         report.Runtime = TryReadRuntimeHealthSnapshot(healthPath);
+        ApplyControlOverlay(report.Control, report.Runtime);
 
         if (!Directory.Exists(logsDir))
             return report;
@@ -211,6 +212,27 @@ public static class StatusCommand
         };
 
         return report;
+    }
+
+    private static void ApplyControlOverlay(RuntimeControlSnapshot? control, RuntimeHealthSnapshot? runtime)
+    {
+        if (control is null || runtime is null)
+            return;
+
+        runtime.IsPaused = control.IsPaused;
+        runtime.PauseReason = control.IsPaused ? control.Reason : null;
+        runtime.PausedAtUtc = control.IsPaused ? control.ChangedAtUtc : null;
+
+        foreach (var profile in runtime.Profiles)
+        {
+            var effectivePause = control.GetEffectivePause(profile.Name);
+            profile.IsPaused = effectivePause is not null;
+            profile.PauseReason = effectivePause?.Reason;
+            profile.PausedAtUtc = effectivePause?.ChangedAtUtc;
+
+            if (profile.IsPaused)
+                profile.State = "Paused";
+        }
     }
 
     private static void PrintVerboseStatus(StatusReport report)

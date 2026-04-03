@@ -176,10 +176,20 @@ public static class DashboardCommand
             if (string.IsNullOrWhiteSpace(request.Profile))
             {
                 controlStore.SetPaused(pause, pause ? NormalizeReason(request.Reason) : null);
+                UpdateRuntimeControlActivity(
+                    installDir!,
+                    pause ? "pause" : "resume",
+                    profileName: null,
+                    pause ? NormalizeReason(request.Reason) : null);
             }
             else
             {
                 controlStore.SetProfilePaused(request.Profile, pause, pause ? NormalizeReason(request.Reason) : null);
+                UpdateRuntimeControlActivity(
+                    installDir!,
+                    pause ? "pause" : "resume",
+                    request.Profile,
+                    pause ? NormalizeReason(request.Reason) : null);
             }
         }
         catch (UnauthorizedAccessException)
@@ -249,7 +259,7 @@ public static class DashboardCommand
             return;
         }
 
-        var arguments = $"reconcile --config \"{configPath}\"";
+        var arguments = $"reconcile --config \"{configPath}\" --trigger Dashboard";
         if (!string.IsNullOrWhiteSpace(request.Profile))
             arguments += $" --profile \"{request.Profile}\"";
 
@@ -268,6 +278,11 @@ public static class DashboardCommand
             };
 
             process.Start();
+            UpdateRuntimeControlActivity(
+                report.InstallDirectory!,
+                "reconcile",
+                request.Profile,
+                "Requested from dashboard");
         }
         catch (Exception ex)
         {
@@ -287,6 +302,96 @@ public static class DashboardCommand
     private static string NormalizeReason(string? reason)
     {
         return string.IsNullOrWhiteSpace(reason) ? "Paused by operator" : reason;
+    }
+
+    private static void UpdateRuntimeControlActivity(string installDir, string action, string? profileName, string? details)
+    {
+        try
+        {
+            var healthPath = Path.Combine(installDir, "foldersync-health.json");
+            var snapshot = StatusCommand.TryReadRuntimeHealthSnapshot(healthPath);
+            if (snapshot is null)
+                return;
+
+            snapshot.UpdatedAtUtc = DateTimeOffset.UtcNow;
+
+            if (string.IsNullOrWhiteSpace(profileName))
+            {
+                foreach (var profile in snapshot.Profiles)
+                    ApplyActivity(profile, action, details);
+            }
+            else
+            {
+                var profile = snapshot.Profiles.FirstOrDefault(item =>
+                    string.Equals(item.Name, profileName, StringComparison.OrdinalIgnoreCase));
+                if (profile is null)
+                    return;
+
+                ApplyActivity(profile, action, details);
+            }
+
+            PersistRuntimeHealthSnapshot(healthPath, snapshot);
+        }
+        catch
+        {
+        }
+    }
+
+    private static void ApplyActivity(ProfileHealthSnapshot profile, string action, string? details)
+    {
+        var now = DateTimeOffset.UtcNow;
+        switch (action)
+        {
+            case "pause":
+                profile.IsPaused = true;
+                profile.PauseReason = details;
+                profile.PausedAtUtc = now;
+                profile.State = "Paused";
+                profile.AddActivity(new ProfileActivitySnapshot
+                {
+                    Kind = "control",
+                    Summary = "Paused from dashboard",
+                    TimestampUtc = now,
+                    Details = details
+                });
+                break;
+            case "resume":
+                profile.IsPaused = false;
+                profile.PauseReason = null;
+                profile.PausedAtUtc = null;
+                if (string.Equals(profile.State, "Paused", StringComparison.OrdinalIgnoreCase))
+                    profile.State = "Running";
+                profile.AddActivity(new ProfileActivitySnapshot
+                {
+                    Kind = "control",
+                    Summary = "Resumed from dashboard",
+                    TimestampUtc = now,
+                    Details = details
+                });
+                break;
+            case "reconcile":
+                profile.Reconciliation.LastTrigger = "Dashboard";
+                profile.AddActivity(new ProfileActivitySnapshot
+                {
+                    Kind = "reconcile",
+                    Summary = "Reconciliation requested from dashboard",
+                    TimestampUtc = now,
+                    Details = details
+                });
+                break;
+        }
+    }
+
+    private static void PersistRuntimeHealthSnapshot(string path, RuntimeHealthSnapshot snapshot)
+    {
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory))
+            Directory.CreateDirectory(directory);
+
+        var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
+        var tempPath = path + ".tmp";
+        File.WriteAllText(tempPath, json);
+        File.Move(tempPath, path, overwrite: true);
     }
 
     private static string NormalizeExecutablePath(string binPath)
