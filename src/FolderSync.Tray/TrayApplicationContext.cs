@@ -15,6 +15,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private const string DashboardUrl = "http://127.0.0.1:8941/";
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string StartupValueName = "FolderSyncTray";
+    private const string SettingsKeyPath = @"Software\FolderSync\Tray";
+    private const string ToastNotificationsValueName = "EnableToastNotifications";
     private const string ToastAppId = "FolderSync.Tray";
     private const string ToastDisplayName = "FolderSync Tray";
 
@@ -37,6 +39,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _openInstallItem;
     private readonly ToolStripMenuItem _startWithWindowsItem;
     private readonly ToolStripMenuItem _restartElevatedItem;
+    private readonly ToolStripMenuItem _settingsItem;
+    private readonly ToolStripMenuItem _aboutItem;
     private readonly ToolStripMenuItem _refreshItem;
     private readonly System.Windows.Forms.Timer _timer;
     private readonly Control _uiInvoker;
@@ -95,6 +99,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
             CheckOnClick = true
         };
         _restartElevatedItem = new ToolStripMenuItem("Restart as administrator", null, (_, _) => RestartElevated());
+        _settingsItem = new ToolStripMenuItem("Settings", null, (_, _) => ShowSettings());
+        _aboutItem = new ToolStripMenuItem("About FolderSync Tray", null, (_, _) => ShowAbout());
         _refreshItem = new ToolStripMenuItem("Refresh now", null, (_, _) => RefreshState(showErrors: true));
         var exitItem = new ToolStripMenuItem("Exit", null, (_, _) => ExitThread());
 
@@ -113,6 +119,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
             new ToolStripSeparator(),
             _startWithWindowsItem,
             _restartElevatedItem,
+            _settingsItem,
+            _aboutItem,
             new ToolStripSeparator(),
             _refreshItem,
             exitItem
@@ -386,6 +394,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         try
         {
+            if (!IsToastNotificationsEnabled())
+                return;
+
             EnsureToastInitialized();
             if (!_toastInitialized)
                 return;
@@ -425,6 +436,105 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             _toastInitialized = false;
         }
+    }
+
+    private void ShowSettings()
+    {
+        using var form = new Form
+        {
+            Text = "FolderSync Tray Settings",
+            StartPosition = FormStartPosition.CenterScreen,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            ShowInTaskbar = false,
+            ClientSize = new Size(430, 220)
+        };
+
+        var startupCheck = new CheckBox
+        {
+            AutoSize = true,
+            Text = "Start tray companion with Windows",
+            Checked = IsStartWithWindowsEnabled(),
+            Location = new Point(18, 22)
+        };
+
+        var toastCheck = new CheckBox
+        {
+            AutoSize = true,
+            Text = "Enable Windows toast notifications",
+            Checked = IsToastNotificationsEnabled(),
+            Location = new Point(18, 56)
+        };
+
+        var hintLabel = new Label
+        {
+            AutoSize = false,
+            Location = new Point(18, 94),
+            Size = new Size(394, 58),
+            Text = "Toast notifications are used for service state changes and profile alerts. " +
+                   "Service control still works best from the tray menu or dashboard."
+        };
+
+        var saveButton = new Button
+        {
+            Text = "Save",
+            DialogResult = DialogResult.OK,
+            Location = new Point(236, 172),
+            Size = new Size(84, 30)
+        };
+
+        var cancelButton = new Button
+        {
+            Text = "Cancel",
+            DialogResult = DialogResult.Cancel,
+            Location = new Point(328, 172),
+            Size = new Size(84, 30)
+        };
+
+        form.Controls.Add(startupCheck);
+        form.Controls.Add(toastCheck);
+        form.Controls.Add(hintLabel);
+        form.Controls.Add(saveButton);
+        form.Controls.Add(cancelButton);
+        form.AcceptButton = saveButton;
+        form.CancelButton = cancelButton;
+
+        if (form.ShowDialog() != DialogResult.OK)
+            return;
+
+        SetStartWithWindows(startupCheck.Checked);
+        SetToastNotificationsEnabled(toastCheck.Checked);
+        _startWithWindowsItem.Checked = startupCheck.Checked;
+
+        ShowBalloon("FolderSync Tray", "Settings updated.", ToolTipIcon.Info);
+    }
+
+    private void ShowAbout()
+    {
+        var version = typeof(TrayApplicationContext).Assembly.GetName().Version?.ToString() ?? "Unknown";
+        var informationalVersion = typeof(TrayApplicationContext).Assembly
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+            .FirstOrDefault()?.InformationalVersion ?? version;
+
+        var installPath = _installDirectory ?? "Unknown";
+        var exePath = GetTrayExecutablePath() ?? "Unknown";
+        var serviceState = _serviceStatus.HasValue ? FormatServiceStatus(_serviceStatus.Value) : "Unknown";
+        var message =
+            $"FolderSync Tray\n\n" +
+            $"Version: {version}\n" +
+            $"Build: {informationalVersion}\n" +
+            $"Service: {serviceState}\n" +
+            $"Dashboard: {(_dashboardResponsive ? "Running" : "Not running")}\n" +
+            $"Install path: {installPath}\n" +
+            $"Tray executable: {exePath}";
+
+        MessageBox.Show(
+            message,
+            "About FolderSync Tray",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Information);
     }
 
     private void HandleToastActivation(string argument, IReadOnlyDictionary<string, string>? payload)
@@ -745,23 +855,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         try
         {
-            var trayExecutable = GetTrayExecutablePath();
-            if (string.IsNullOrWhiteSpace(trayExecutable))
-                throw new InvalidOperationException("Tray executable path is unavailable.");
-
-            using var runKey = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true)
-                ?? Registry.CurrentUser.CreateSubKey(RunKeyPath, writable: true);
-
-            if (_startWithWindowsItem.Checked)
-            {
-                runKey.SetValue(StartupValueName, FormatStartupCommand(trayExecutable));
-                ShowBalloon("FolderSync Tray", "Tray app will now start with Windows.", ToolTipIcon.Info);
-            }
-            else
-            {
-                runKey.DeleteValue(StartupValueName, throwOnMissingValue: false);
-                ShowBalloon("FolderSync Tray", "Tray app will no longer start with Windows.", ToolTipIcon.Info);
-            }
+            SetStartWithWindows(_startWithWindowsItem.Checked);
+            ShowBalloon(
+                "FolderSync Tray",
+                _startWithWindowsItem.Checked
+                    ? "Tray app will now start with Windows."
+                    : "Tray app will no longer start with Windows.",
+                ToolTipIcon.Info);
         }
         catch (Exception ex)
         {
@@ -1226,6 +1326,39 @@ internal sealed class TrayApplicationContext : ApplicationContext
         using var runKey = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: false);
         var currentValue = runKey?.GetValue(StartupValueName) as string;
         return !string.IsNullOrWhiteSpace(currentValue);
+    }
+
+    private void SetStartWithWindows(bool enabled)
+    {
+        var trayExecutable = GetTrayExecutablePath();
+        if (string.IsNullOrWhiteSpace(trayExecutable))
+            throw new InvalidOperationException("Tray executable path is unavailable.");
+
+        using var runKey = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true)
+            ?? Registry.CurrentUser.CreateSubKey(RunKeyPath, writable: true);
+
+        if (enabled)
+            runKey.SetValue(StartupValueName, FormatStartupCommand(trayExecutable));
+        else
+            runKey.DeleteValue(StartupValueName, throwOnMissingValue: false);
+    }
+
+    private static bool IsToastNotificationsEnabled()
+    {
+        using var settingsKey = Registry.CurrentUser.OpenSubKey(SettingsKeyPath, writable: false);
+        var value = settingsKey?.GetValue(ToastNotificationsValueName);
+        return value switch
+        {
+            int intValue => intValue != 0,
+            string stringValue when int.TryParse(stringValue, out var parsed) => parsed != 0,
+            _ => true
+        };
+    }
+
+    private static void SetToastNotificationsEnabled(bool enabled)
+    {
+        using var settingsKey = Registry.CurrentUser.CreateSubKey(SettingsKeyPath);
+        settingsKey?.SetValue(ToastNotificationsValueName, enabled ? 1 : 0, RegistryValueKind.DWord);
     }
 
     private static string FormatStartupCommand(string trayExecutable)
