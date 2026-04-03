@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.ServiceProcess;
 using System.Text.Json;
 using Microsoft.Win32;
+using WindowsToastNotifyApi;
 
 namespace FolderSync.Tray;
 
@@ -14,6 +15,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private const string DashboardUrl = "http://127.0.0.1:8941/";
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string StartupValueName = "FolderSyncTray";
+    private const string ToastAppId = "FolderSync.Tray";
+    private const string ToastDisplayName = "FolderSync Tray";
 
     private readonly NotifyIcon _notifyIcon;
     private readonly ContextMenuStrip _menu;
@@ -36,13 +39,16 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _restartElevatedItem;
     private readonly ToolStripMenuItem _refreshItem;
     private readonly System.Windows.Forms.Timer _timer;
+    private readonly Control _uiInvoker;
     private readonly JsonSerializerOptions _jsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
     private ServiceControllerStatus? _serviceStatus;
+    private ServiceControllerStatus? _lastObservedServiceStatus;
     private bool _dashboardResponsive;
+    private bool _toastInitialized;
     private string? _installDirectory;
     private string? _executablePath;
     private RuntimeHealthSnapshot? _healthSnapshot;
@@ -119,8 +125,20 @@ internal sealed class TrayApplicationContext : ApplicationContext
             ContextMenuStrip = _menu,
             Icon = BuildStatusIcon("running")
         };
+        _uiInvoker = new Control();
+        _ = _uiInvoker.Handle;
         _currentTrayIcon = _notifyIcon.Icon;
         _notifyIcon.DoubleClick += async (_, _) => await OpenDashboardAsync();
+        Toast.Activated += toastArgs =>
+        {
+            try
+            {
+                _uiInvoker.BeginInvoke(new MethodInvoker(() => HandleToastActivation(toastArgs.Arguments, toastArgs.Payload)));
+            }
+            catch
+            {
+            }
+        };
 
         _timer = new System.Windows.Forms.Timer
         {
@@ -139,6 +157,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _currentTrayIcon?.Dispose();
         _notifyIcon.Dispose();
         _menu.Dispose();
+        _uiInvoker.Dispose();
 
         if (_dashboardProcess is { HasExited: false })
             _dashboardProcess.Dispose();
@@ -151,6 +170,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         try
         {
             ResolveInstallLocation();
+            EnsureToastInitialized();
             _serviceStatus = TryGetServiceStatus();
             _healthSnapshot = TryReadJson<RuntimeHealthSnapshot>(GetPath("foldersync-health.json"));
             _controlSnapshot = TryReadJson<RuntimeControlSnapshot>(GetPath("foldersync-control.json")) ?? new RuntimeControlSnapshot();
@@ -158,6 +178,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             ApplyControlOverlay();
             UpdateMenu();
             ShowAlertIfNeeded();
+            ShowServiceStateToastIfNeeded();
         }
         catch (Exception ex)
         {
@@ -287,6 +308,154 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         _lastAlertKey = key;
         ShowBalloon($"FolderSync: {profile.Name}", profile.AlertMessage, ToolTipIcon.Warning);
+        ShowAlertToast(profile);
+    }
+
+    private void ShowServiceStateToastIfNeeded()
+    {
+        if (!_serviceStatus.HasValue)
+            return;
+
+        if (!_lastObservedServiceStatus.HasValue)
+        {
+            _lastObservedServiceStatus = _serviceStatus;
+            return;
+        }
+
+        if (_lastObservedServiceStatus == _serviceStatus)
+            return;
+
+        var previous = _lastObservedServiceStatus.Value;
+        var current = _serviceStatus.Value;
+        _lastObservedServiceStatus = current;
+
+        if (current == ServiceControllerStatus.Stopped)
+        {
+            ShowToast(
+                "FolderSync service stopped",
+                "The Windows service is not running. You can restart it or inspect the dashboard.",
+                primaryAction: "start-service",
+                primaryLabel: "Start service",
+                secondaryAction: "open-dashboard",
+                secondaryLabel: "Open dashboard",
+                preset: Toast.Warning);
+            return;
+        }
+
+        if (previous == ServiceControllerStatus.Stopped && current == ServiceControllerStatus.Running)
+        {
+            ShowToast(
+                "FolderSync service running",
+                "The Windows service is back online.",
+                primaryAction: "open-dashboard",
+                primaryLabel: "Open dashboard",
+                preset: Toast.Success);
+        }
+    }
+
+    private void ShowAlertToast(ProfileHealthSnapshot profile)
+    {
+        if (string.IsNullOrWhiteSpace(profile.AlertMessage))
+            return;
+
+        ShowToast(
+            $"FolderSync alert: {profile.Name}",
+            profile.AlertMessage,
+            primaryAction: "open-dashboard",
+            primaryLabel: "Open dashboard",
+            secondaryAction: _serviceStatus == ServiceControllerStatus.Running ? "reconcile" : "start-service",
+            secondaryLabel: _serviceStatus == ServiceControllerStatus.Running ? "Reconcile now" : "Start service",
+            payload: new Dictionary<string, string> { ["profile"] = profile.Name },
+            preset: Toast.Warning);
+    }
+
+    private void ShowToast(
+        string title,
+        string message,
+        string primaryAction,
+        string primaryLabel,
+        string? secondaryAction = null,
+        string? secondaryLabel = null,
+        Dictionary<string, string>? payload = null,
+        Action<ToastOptions>? configure = null,
+        Action<string, string, ToastOptions>? preset = null)
+    {
+        try
+        {
+            EnsureToastInitialized();
+            if (!_toastInitialized)
+                return;
+
+            var options = new ToastOptions
+            {
+                PrimaryButton = (primaryLabel, primaryAction),
+                Payload = payload ?? []
+            };
+
+            if (!string.IsNullOrWhiteSpace(secondaryAction) && !string.IsNullOrWhiteSpace(secondaryLabel))
+                options.SecondaryButton = (secondaryLabel, secondaryAction);
+
+            configure?.Invoke(options);
+
+            if (preset is not null)
+                preset(title, message, options);
+            else
+                Toast.Show(title, message, options);
+        }
+        catch
+        {
+        }
+    }
+
+    private void EnsureToastInitialized()
+    {
+        if (_toastInitialized)
+            return;
+
+        try
+        {
+            Toast.Initialize(ToastAppId, ToastDisplayName, iconPath: null);
+            _toastInitialized = true;
+        }
+        catch
+        {
+            _toastInitialized = false;
+        }
+    }
+
+    private void HandleToastActivation(string argument, IReadOnlyDictionary<string, string>? payload)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(argument))
+                return;
+
+            payload ??= new Dictionary<string, string>();
+            payload.TryGetValue("profile", out var profileName);
+            var action = argument;
+
+            switch (action)
+            {
+                case "open-dashboard":
+                    _ = OpenDashboardAsync(profileName);
+                    break;
+                case "reconcile":
+                    if (string.IsNullOrWhiteSpace(profileName))
+                        ReconcileAll();
+                    else
+                        ReconcileProfile(profileName);
+                    break;
+                case "restart-elevated":
+                    RestartElevated();
+                    break;
+                case "start-service":
+                    StartService();
+                    break;
+            }
+        }
+        catch
+        {
+        }
     }
 
     private async Task OpenDashboardAsync(string? profileName = null)
