@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Microsoft.Win32;
 
 namespace FolderSync.Tray;
 
@@ -7,6 +8,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
 {
     private const string ServiceName = "FolderSync";
     private const string DashboardUrl = "http://127.0.0.1:8941/";
+    private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string StartupValueName = "FolderSyncTray";
 
     private readonly NotifyIcon _notifyIcon;
     private readonly ContextMenuStrip _menu;
@@ -17,6 +20,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _reconcileAllItem;
     private readonly ToolStripMenuItem _openDashboardItem;
     private readonly ToolStripMenuItem _openInstallItem;
+    private readonly ToolStripMenuItem _startWithWindowsItem;
     private readonly ToolStripMenuItem _refreshItem;
     private readonly System.Windows.Forms.Timer _timer;
     private readonly JsonSerializerOptions _jsonOptions = new()
@@ -41,6 +45,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _reconcileAllItem = new ToolStripMenuItem("Reconcile all", null, (_, _) => ReconcileAll());
         _openDashboardItem = new ToolStripMenuItem("Open dashboard", null, async (_, _) => await OpenDashboardAsync());
         _openInstallItem = new ToolStripMenuItem("Open install folder", null, (_, _) => OpenInstallFolder());
+        _startWithWindowsItem = new ToolStripMenuItem("Start with Windows", null, (_, _) => ToggleStartWithWindows())
+        {
+            CheckOnClick = true
+        };
         _refreshItem = new ToolStripMenuItem("Refresh now", null, (_, _) => RefreshState(showErrors: true));
         var exitItem = new ToolStripMenuItem("Exit", null, (_, _) => ExitThread());
 
@@ -55,6 +63,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _resumeAllItem,
             _reconcileAllItem,
             _profilesItem,
+            new ToolStripSeparator(),
+            _startWithWindowsItem,
             new ToolStripSeparator(),
             _refreshItem,
             exitItem
@@ -99,6 +109,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             ResolveInstallLocation();
             _healthSnapshot = TryReadJson<RuntimeHealthSnapshot>(GetPath("foldersync-health.json"));
             _controlSnapshot = TryReadJson<RuntimeControlSnapshot>(GetPath("foldersync-control.json")) ?? new RuntimeControlSnapshot();
+            ApplyControlOverlay();
             UpdateMenu();
             ShowAlertIfNeeded();
         }
@@ -121,6 +132,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         var overallState = _healthSnapshot?.ServiceState ?? "Unknown";
         var pausedText = _controlSnapshot?.IsPaused is true ? $"Paused ({_controlSnapshot.Reason ?? "no reason"})" : overallState;
         _statusItem.Text = $"FolderSync: {pausedText}";
+        _startWithWindowsItem.Checked = IsStartWithWindowsEnabled();
 
         var highestSeverity = GetHighestSeverityProfile();
         _notifyIcon.Icon = highestSeverity switch
@@ -136,6 +148,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _resumeAllItem.Enabled = _controlSnapshot?.IsPaused is true || (_controlSnapshot?.Profiles.Count ?? 0) > 0;
         _reconcileAllItem.Enabled = !string.IsNullOrWhiteSpace(_executablePath);
         _openInstallItem.Enabled = Directory.Exists(_installDirectory);
+        _startWithWindowsItem.Enabled = !string.IsNullOrWhiteSpace(GetTrayExecutablePath());
 
         _profilesItem.DropDownItems.Clear();
         var profiles = _healthSnapshot?.Profiles ?? [];
@@ -178,6 +191,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         root.DropDownItems.Add(new ToolStripMenuItem($"Processed: {profile.ProcessedCount}") { Enabled = false });
         root.DropDownItems.Add(new ToolStripMenuItem($"Failed: {profile.FailedCount}") { Enabled = false });
         root.DropDownItems.Add(new ToolStripMenuItem($"Overflows: {profile.WatcherOverflowCount}") { Enabled = false });
+        root.DropDownItems.Add(new ToolStripMenuItem($"Last sync: {FormatTimestamp(profile.LastSuccessfulSyncUtc)}") { Enabled = false });
         root.DropDownItems.Add(new ToolStripSeparator());
         root.DropDownItems.Add(new ToolStripMenuItem("Pause profile", null, (_, _) => PauseProfile(profile.Name))
         {
@@ -290,40 +304,32 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void PauseAll()
     {
-        WriteControl(store => store.IsPaused = true, "Paused by tray app", "FolderSync paused");
+        WriteControl(store => store.SetPaused(true, "Paused by tray app"), "FolderSync paused", activityAction: "pause", profileName: null, activityDetails: "Paused by tray app");
     }
 
     private void ResumeAll()
     {
         WriteControl(store =>
         {
-            store.IsPaused = false;
-            store.Reason = null;
-            store.ChangedAtUtc = DateTimeOffset.UtcNow;
+            store.SetPaused(false, null);
             store.Profiles.Clear();
-        }, null, "FolderSync resumed");
+        }, "FolderSync resumed", activityAction: "resume", profileName: null, activityDetails: null);
     }
 
     private void PauseProfile(string profileName)
     {
         WriteControl(store =>
         {
-            var profile = store.Profiles.FirstOrDefault(item => string.Equals(item.Name, profileName, StringComparison.OrdinalIgnoreCase));
-            profile ??= AddProfile(store, profileName);
-            profile.IsPaused = true;
-            profile.Reason = "Paused by tray app";
-            profile.ChangedAtUtc = DateTimeOffset.UtcNow;
-        }, null, $"Paused {profileName}");
+            store.SetProfilePaused(profileName, true, "Paused by tray app");
+        }, $"Paused {profileName}", activityAction: "pause", profileName: profileName, activityDetails: "Paused by tray app");
     }
 
     private void ResumeProfile(string profileName)
     {
         WriteControl(store =>
         {
-            var profile = store.Profiles.FirstOrDefault(item => string.Equals(item.Name, profileName, StringComparison.OrdinalIgnoreCase));
-            if (profile is not null)
-                store.Profiles.Remove(profile);
-        }, null, $"Resumed {profileName}");
+            store.SetProfilePaused(profileName, false, null);
+        }, $"Resumed {profileName}", activityAction: "resume", profileName: profileName, activityDetails: null);
     }
 
     private void ReconcileAll()
@@ -348,6 +354,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 throw new InvalidOperationException("Installed appsettings.json not found.");
 
             var arguments = $"reconcile --config \"{configPath}\"";
+            arguments += " --trigger Tray";
             if (!string.IsNullOrWhiteSpace(profileName))
                 arguments += $" --profile \"{profileName}\"";
 
@@ -360,6 +367,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 CreateNoWindow = true
             });
 
+            WriteRuntimeActivity("reconcile", profileName, "Requested from tray app");
+            RefreshState(showErrors: false);
+
             ShowBalloon("FolderSync Tray", string.IsNullOrWhiteSpace(profileName) ? "Started reconciliation for all profiles." : $"Started reconciliation for {profileName}.", ToolTipIcon.Info);
         }
         catch (Exception ex)
@@ -368,22 +378,16 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
     }
 
-    private void WriteControl(Action<RuntimeControlSnapshot> update, string? reason, string successMessage)
+    private void WriteControl(Action<RuntimeControlSnapshot> update, string successMessage, string activityAction, string? profileName, string? activityDetails)
     {
         try
         {
             var path = GetPath("foldersync-control.json");
             var snapshot = TryReadJson<RuntimeControlSnapshot>(path) ?? new RuntimeControlSnapshot();
 
-            if (!string.IsNullOrWhiteSpace(reason))
-            {
-                snapshot.IsPaused = true;
-                snapshot.Reason = reason;
-                snapshot.ChangedAtUtc = DateTimeOffset.UtcNow;
-            }
-
             update(snapshot);
             PersistJson(path, snapshot);
+            WriteRuntimeActivity(activityAction, profileName, activityDetails);
             RefreshState(showErrors: false);
             ShowBalloon("FolderSync Tray", successMessage, ToolTipIcon.Info);
         }
@@ -394,6 +398,35 @@ internal sealed class TrayApplicationContext : ApplicationContext
         catch (Exception ex)
         {
             ShowBalloon("FolderSync Tray", ex.Message, ToolTipIcon.Error);
+        }
+    }
+
+    private void ToggleStartWithWindows()
+    {
+        try
+        {
+            var trayExecutable = GetTrayExecutablePath();
+            if (string.IsNullOrWhiteSpace(trayExecutable))
+                throw new InvalidOperationException("Tray executable path is unavailable.");
+
+            using var runKey = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true)
+                ?? Registry.CurrentUser.CreateSubKey(RunKeyPath, writable: true);
+
+            if (_startWithWindowsItem.Checked)
+            {
+                runKey.SetValue(StartupValueName, $"\"{trayExecutable}\"");
+                ShowBalloon("FolderSync Tray", "Tray app will now start with Windows.", ToolTipIcon.Info);
+            }
+            else
+            {
+                runKey.DeleteValue(StartupValueName, throwOnMissingValue: false);
+                ShowBalloon("FolderSync Tray", "Tray app will no longer start with Windows.", ToolTipIcon.Info);
+            }
+        }
+        catch (Exception ex)
+        {
+            _startWithWindowsItem.Checked = IsStartWithWindowsEnabled();
+            ShowBalloon("FolderSync Tray", $"Unable to update startup setting: {ex.Message}", ToolTipIcon.Warning);
         }
     }
 
@@ -451,16 +484,6 @@ internal sealed class TrayApplicationContext : ApplicationContext
         var tempPath = path + ".tmp";
         File.WriteAllText(tempPath, JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true }));
         File.Move(tempPath, path, overwrite: true);
-    }
-
-    private static ProfileRuntimeControlSnapshot AddProfile(RuntimeControlSnapshot snapshot, string profileName)
-    {
-        var profile = new ProfileRuntimeControlSnapshot
-        {
-            Name = profileName
-        };
-        snapshot.Profiles.Add(profile);
-        return profile;
     }
 
     private static (int ExitCode, string Output, string Error) RunSc(string arguments)
@@ -523,6 +546,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private string BuildNotifyText(string overallState)
     {
+        if (_controlSnapshot?.IsPaused is true)
+            return $"FolderSync: paused ({_controlSnapshot.Reason ?? "operator"})";
+
         var profile = _healthSnapshot?.Profiles
             .Where(item => !string.IsNullOrWhiteSpace(item.AlertMessage))
             .OrderByDescending(item => item.LastAlertUtc)
@@ -535,6 +561,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private string? GetHighestSeverityProfile()
     {
+        if (_controlSnapshot?.IsPaused is true || _healthSnapshot?.Profiles.Any(item => item.IsPaused) is true)
+            return "warning";
+
         if (_healthSnapshot?.Profiles.Any(item => !string.IsNullOrWhiteSpace(item.AlertMessage)) is true)
             return "warning";
 
@@ -553,6 +582,122 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         return value.Length <= 63 ? value : value[..60] + "...";
     }
+
+    private void ApplyControlOverlay()
+    {
+        if (_healthSnapshot is null || _controlSnapshot is null)
+            return;
+
+        if (_controlSnapshot.IsPaused)
+        {
+            _healthSnapshot.ServiceState = "Paused";
+        }
+
+        foreach (var profile in _healthSnapshot.Profiles)
+        {
+            var effectivePause = _controlSnapshot.GetEffectivePause(profile.Name);
+            profile.IsPaused = effectivePause.IsPaused;
+            profile.PauseReason = effectivePause.Reason;
+            if (effectivePause.IsPaused)
+                profile.State = "Paused";
+        }
+    }
+
+    private void WriteRuntimeActivity(string action, string? profileName, string? details)
+    {
+        try
+        {
+            var path = GetPath("foldersync-health.json");
+            var snapshot = TryReadJson<RuntimeHealthSnapshot>(path);
+            if (snapshot is null)
+                return;
+
+            snapshot.UpdatedAtUtc = DateTimeOffset.UtcNow;
+
+            if (string.IsNullOrWhiteSpace(profileName))
+            {
+                foreach (var profile in snapshot.Profiles)
+                    ApplyActivity(profile, action, details);
+            }
+            else
+            {
+                var profile = snapshot.Profiles.FirstOrDefault(item => string.Equals(item.Name, profileName, StringComparison.OrdinalIgnoreCase));
+                if (profile is null)
+                    return;
+
+                ApplyActivity(profile, action, details);
+            }
+
+            PersistJson(path, snapshot);
+        }
+        catch
+        {
+        }
+    }
+
+    private static void ApplyActivity(ProfileHealthSnapshot profile, string action, string? details)
+    {
+        var now = DateTimeOffset.UtcNow;
+        switch (action)
+        {
+            case "pause":
+                profile.IsPaused = true;
+                profile.PauseReason = details;
+                profile.State = "Paused";
+                profile.AddActivity(new ProfileActivitySnapshot
+                {
+                    Kind = "control",
+                    Summary = "Paused from tray app",
+                    TimestampUtc = now,
+                    Details = details
+                });
+                break;
+            case "resume":
+                profile.IsPaused = false;
+                profile.PauseReason = null;
+                if (string.Equals(profile.State, "Paused", StringComparison.OrdinalIgnoreCase))
+                    profile.State = "Running";
+                profile.AddActivity(new ProfileActivitySnapshot
+                {
+                    Kind = "control",
+                    Summary = "Resumed from tray app",
+                    TimestampUtc = now,
+                    Details = details
+                });
+                break;
+            case "reconcile":
+                profile.Reconciliation.LastTrigger = "Tray";
+                profile.AddActivity(new ProfileActivitySnapshot
+                {
+                    Kind = "reconcile",
+                    Summary = "Reconciliation requested from tray app",
+                    TimestampUtc = now,
+                    Details = details
+                });
+                break;
+        }
+    }
+
+    private static string FormatTimestamp(DateTimeOffset? value)
+    {
+        return value?.ToLocalTime().ToString("g") ?? "n/a";
+    }
+
+    private static string? GetTrayExecutablePath()
+    {
+        var processPath = Environment.ProcessPath;
+        if (!string.IsNullOrWhiteSpace(processPath) && File.Exists(processPath))
+            return processPath;
+
+        return null;
+    }
+
+    private static bool IsStartWithWindowsEnabled()
+    {
+        using var runKey = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: false);
+        var currentValue = runKey?.GetValue(StartupValueName) as string;
+        return !string.IsNullOrWhiteSpace(currentValue);
+    }
 }
 
 internal sealed class RuntimeControlSnapshot
@@ -561,6 +706,62 @@ internal sealed class RuntimeControlSnapshot
     public string? Reason { get; set; }
     public DateTimeOffset? ChangedAtUtc { get; set; }
     public List<ProfileRuntimeControlSnapshot> Profiles { get; set; } = [];
+
+    public void SetPaused(bool paused, string? reason)
+    {
+        IsPaused = paused;
+        Reason = paused ? reason : null;
+        ChangedAtUtc = DateTimeOffset.UtcNow;
+    }
+
+    public void SetProfilePaused(string profileName, bool paused, string? reason)
+    {
+        var profile = Profiles.FirstOrDefault(item => string.Equals(item.Name, profileName, StringComparison.OrdinalIgnoreCase));
+        if (paused)
+        {
+            profile ??= AddProfile(profileName);
+            profile.IsPaused = true;
+            profile.Reason = reason;
+            profile.ChangedAtUtc = DateTimeOffset.UtcNow;
+            return;
+        }
+
+        if (profile is not null)
+            Profiles.Remove(profile);
+    }
+
+    public ProfileRuntimeControlSnapshot GetEffectivePause(string profileName)
+    {
+        if (IsPaused)
+        {
+            return new ProfileRuntimeControlSnapshot
+            {
+                Name = profileName,
+                IsPaused = true,
+                Reason = Reason,
+                ChangedAtUtc = ChangedAtUtc
+            };
+        }
+
+        var profile = Profiles.FirstOrDefault(item => string.Equals(item.Name, profileName, StringComparison.OrdinalIgnoreCase));
+        if (profile is not null)
+            return profile;
+
+        return new ProfileRuntimeControlSnapshot
+        {
+            Name = profileName
+        };
+    }
+
+    private ProfileRuntimeControlSnapshot AddProfile(string profileName)
+    {
+        var profile = new ProfileRuntimeControlSnapshot
+        {
+            Name = profileName
+        };
+        Profiles.Add(profile);
+        return profile;
+    }
 }
 
 internal sealed class ProfileRuntimeControlSnapshot
@@ -581,6 +782,8 @@ internal sealed class RuntimeHealthSnapshot
 
 internal sealed class ProfileHealthSnapshot
 {
+    private const int MaxRecentActivities = 12;
+
     public required string Name { get; init; }
     public string State { get; set; } = "Starting";
     public bool IsPaused { get; set; }
@@ -594,6 +797,13 @@ internal sealed class ProfileHealthSnapshot
     public DateTimeOffset? LastAlertUtc { get; set; }
     public ReconciliationHealthSnapshot Reconciliation { get; init; } = new();
     public List<ProfileActivitySnapshot> RecentActivities { get; init; } = [];
+
+    public void AddActivity(ProfileActivitySnapshot activity)
+    {
+        RecentActivities.Insert(0, activity);
+        if (RecentActivities.Count > MaxRecentActivities)
+            RecentActivities.RemoveRange(MaxRecentActivities, RecentActivities.Count - MaxRecentActivities);
+    }
 }
 
 internal sealed class ReconciliationHealthSnapshot
