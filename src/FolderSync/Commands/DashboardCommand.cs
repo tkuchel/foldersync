@@ -394,7 +394,7 @@ public static class DashboardCommand
             return;
         }
 
-        var arguments = $"reconcile --config \"{configPath}\" --trigger Dashboard";
+        var arguments = $"reconcile --config \"{configPath}\" --trigger ManualForceSync";
         if (!string.IsNullOrWhiteSpace(request.Profile))
             arguments += $" --profile \"{request.Profile}\"";
 
@@ -417,7 +417,7 @@ public static class DashboardCommand
                 report.InstallDirectory!,
                 "reconcile",
                 request.Profile,
-                "Requested from dashboard");
+                "Manual sync requested from dashboard");
         }
         catch (Exception ex)
         {
@@ -429,7 +429,7 @@ public static class DashboardCommand
         await WriteJsonAsync(context.Response, new
         {
             ok = true,
-            action = "reconcile",
+            action = "force-sync",
             profile = request.Profile
         });
     }
@@ -529,11 +529,11 @@ public static class DashboardCommand
                 });
                 break;
             case "reconcile":
-                profile.Reconciliation.LastTrigger = "Dashboard";
+                profile.Reconciliation.LastTrigger = "ManualForceSync";
                 profile.AddActivity(new ProfileActivitySnapshot
                 {
                     Kind = "reconcile",
-                    Summary = "Reconciliation requested from dashboard",
+                    Summary = "Force sync requested from dashboard",
                     TimestampUtc = now,
                     Details = details
                 });
@@ -1189,7 +1189,7 @@ public static class DashboardCommand
             <div class="actions">
               <button data-action="pause-profile" data-profile="${safeName}">Pause profile</button>
               <button data-action="resume-profile" data-profile="${safeName}" class="secondary">Resume profile</button>
-              <button data-action="reconcile-profile" data-profile="${safeName}" class="secondary">Reconcile now</button>
+              <button data-action="reconcile-profile" data-profile="${safeName}" class="secondary">Force sync now</button>
               <button data-action="edit-profile" data-profile="${safeName}" class="secondary">Edit profile</button>
             </div>
             <details class="history" data-profile="${safeName}" ${historyOpen}>
@@ -1336,7 +1336,7 @@ public static class DashboardCommand
             SourcePath: '',
             DestinationPath: '',
             IncludeSubdirectories: true,
-            Reconciliation: { Enabled: true, IntervalMinutes: 15, RunOnStartup: true, UseRobocopy: true, RobocopyOptions: '' }
+            Reconciliation: { Enabled: true, IntervalMinutes: 15, RunOnStartup: true, UseRobocopy: true, RobocopyOptions: defaultRobocopyOptions }
           });
         } catch (error) {
           showToast(error.message, 'error');
@@ -1355,7 +1355,7 @@ public static class DashboardCommand
           ? `Paused ${profile}`
           : action === 'resume-profile'
             ? `Resumed ${profile}`
-            : `Started reconciliation for ${profile}`;
+            : `Started force sync for ${profile}`;
         showToast(actionLabel);
         await refresh();
       } catch (error) {
