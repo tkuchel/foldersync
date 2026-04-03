@@ -304,6 +304,30 @@ public static class DashboardCommand
         return string.IsNullOrWhiteSpace(reason) ? "Paused by operator" : reason;
     }
 
+    private static string GetDashboardIconDataUrl()
+    {
+        const string svg = """
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="16" fill="#0d8b7d"/>
+  <circle cx="48" cy="16" r="7" fill="#b5faee"/>
+  <text x="32" y="41" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="700" fill="#ffffff">FS</text>
+</svg>
+""";
+
+        return "data:image/svg+xml," + Uri.EscapeDataString(svg);
+    }
+
+    private static string GetDashboardBrandSvg()
+    {
+        return """
+<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+  <rect width="64" height="64" rx="16" fill="#0d8b7d"></rect>
+  <circle cx="48" cy="16" r="7" fill="#b5faee"></circle>
+  <text x="32" y="41" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="700" fill="#ffffff">FS</text>
+</svg>
+""";
+    }
+
     private static void UpdateRuntimeControlActivity(string installDir, string action, string? profileName, string? details)
     {
         try
@@ -455,6 +479,7 @@ public static class DashboardCommand
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>FolderSync Dashboard</title>
+  <link rel="icon" href="{{GetDashboardIconDataUrl()}}">
   <style>
     :root {
       --bg: #f4efe7;
@@ -493,6 +518,9 @@ public static class DashboardCommand
     body { margin: 0; font-family: "Segoe UI", sans-serif; background: linear-gradient(180deg, color-mix(in srgb, var(--bg) 84%, white), var(--bg)); color: var(--ink); transition: background .2s ease, color .2s ease; }
     .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 20px 48px; }
     .hero { display: flex; justify-content: space-between; gap: 16px; align-items: end; margin-bottom: 20px; }
+    .hero-brand { display:flex; gap:16px; align-items:center; }
+    .brand-mark { width: 56px; height: 56px; border-radius: 18px; box-shadow: var(--shadow); flex: 0 0 auto; }
+    .brand-mark svg { width: 100%; height: 100%; display:block; }
     .hero h1 { margin: 0; font-size: 2rem; }
     .hero p { margin: 6px 0 0; color: var(--muted); }
     .hero-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
@@ -544,9 +572,12 @@ public static class DashboardCommand
 <body>
   <div class="wrap">
     <div class="hero">
-      <div>
-        <h1>{{serviceName}} Dashboard</h1>
-        <p>Live local status, health, and profile activity. Refreshes every 5 seconds.</p>
+      <div class="hero-brand">
+        <div class="brand-mark">{{GetDashboardBrandSvg()}}</div>
+        <div>
+          <h1>{{serviceName}} Dashboard</h1>
+          <p>Live local status, health, and profile activity. Refreshes every 5 seconds.</p>
+        </div>
       </div>
       <div class="hero-actions">
         <button id="theme-toggle" class="theme-toggle secondary" type="button">Dark mode</button>
@@ -615,6 +646,22 @@ public static class DashboardCommand
       }
 
       setTheme(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    }
+
+    function initializeProfileFilterFromUrl() {
+      const params = new URLSearchParams(window.location.search);
+      const profile = params.get('profile');
+      if (profile) {
+        document.getElementById('profile-filter').value = profile;
+      }
+    }
+
+    function syncFilterToUrl() {
+      const value = document.getElementById('profile-filter').value.trim();
+      const url = new URL(window.location.href);
+      if (value) url.searchParams.set('profile', value);
+      else url.searchParams.delete('profile');
+      window.history.replaceState({}, '', url);
     }
 
     function showToast(message, kind = 'success') {
@@ -731,6 +778,7 @@ public static class DashboardCommand
     }
 
     document.getElementById('profile-filter').addEventListener('input', () => {
+      syncFilterToUrl();
       refresh();
     });
 
@@ -793,6 +841,7 @@ public static class DashboardCommand
     });
 
     initializeTheme();
+    initializeProfileFilterFromUrl();
     refresh();
     setInterval(refresh, 5000);
   </script>

@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.Win32;
 
@@ -21,6 +24,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _openDashboardItem;
     private readonly ToolStripMenuItem _openInstallItem;
     private readonly ToolStripMenuItem _startWithWindowsItem;
+    private readonly ToolStripMenuItem _restartElevatedItem;
     private readonly ToolStripMenuItem _refreshItem;
     private readonly System.Windows.Forms.Timer _timer;
     private readonly JsonSerializerOptions _jsonOptions = new()
@@ -34,6 +38,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private RuntimeControlSnapshot? _controlSnapshot;
     private string? _lastAlertKey;
     private Process? _dashboardProcess;
+    private Icon? _currentTrayIcon;
 
     public TrayApplicationContext()
     {
@@ -49,6 +54,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             CheckOnClick = true
         };
+        _restartElevatedItem = new ToolStripMenuItem("Restart as administrator", null, (_, _) => RestartElevated());
         _refreshItem = new ToolStripMenuItem("Refresh now", null, (_, _) => RefreshState(showErrors: true));
         var exitItem = new ToolStripMenuItem("Exit", null, (_, _) => ExitThread());
 
@@ -65,6 +71,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _profilesItem,
             new ToolStripSeparator(),
             _startWithWindowsItem,
+            _restartElevatedItem,
             new ToolStripSeparator(),
             _refreshItem,
             exitItem
@@ -75,8 +82,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
             Text = "FolderSync Tray",
             Visible = true,
             ContextMenuStrip = _menu,
-            Icon = SystemIcons.Application
+            Icon = BuildStatusIcon("running")
         };
+        _currentTrayIcon = _notifyIcon.Icon;
         _notifyIcon.DoubleClick += async (_, _) => await OpenDashboardAsync();
 
         _timer = new System.Windows.Forms.Timer
@@ -93,6 +101,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         _timer.Stop();
         _notifyIcon.Visible = false;
+        _currentTrayIcon?.Dispose();
         _notifyIcon.Dispose();
         _menu.Dispose();
 
@@ -133,14 +142,17 @@ internal sealed class TrayApplicationContext : ApplicationContext
         var pausedText = _controlSnapshot?.IsPaused is true ? $"Paused ({_controlSnapshot.Reason ?? "no reason"})" : overallState;
         _statusItem.Text = $"FolderSync: {pausedText}";
         _startWithWindowsItem.Checked = IsStartWithWindowsEnabled();
+        _restartElevatedItem.Visible = !IsProcessElevated();
 
         var highestSeverity = GetHighestSeverityProfile();
-        _notifyIcon.Icon = highestSeverity switch
+        var iconState = highestSeverity switch
         {
-            "error" => SystemIcons.Error,
-            "warning" => SystemIcons.Warning,
-            _ => SystemIcons.Application
+            "error" => "error",
+            "warning" => "warning",
+            _ when _controlSnapshot?.IsPaused is true => "paused",
+            _ => "running"
         };
+        UpdateTrayIcon(iconState);
 
         _notifyIcon.Text = TrimNotifyText(BuildNotifyText(overallState));
 
@@ -170,7 +182,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private void UpdateUnavailableState(string message)
     {
         _statusItem.Text = message;
-        _notifyIcon.Icon = SystemIcons.Warning;
+        UpdateTrayIcon("warning");
         _notifyIcon.Text = TrimNotifyText(message);
         _profilesItem.Enabled = false;
         _profilesItem.DropDownItems.Clear();
@@ -187,12 +199,14 @@ internal sealed class TrayApplicationContext : ApplicationContext
             ? $"Paused: {profile.PauseReason ?? "operator"}"
             : profile.AlertMessage ?? profile.State;
 
-        var root = new ToolStripMenuItem($"{profile.Name} ({stateLabel})");
-        root.DropDownItems.Add(new ToolStripMenuItem($"Processed: {profile.ProcessedCount}") { Enabled = false });
-        root.DropDownItems.Add(new ToolStripMenuItem($"Failed: {profile.FailedCount}") { Enabled = false });
+        var root = new ToolStripMenuItem(profile.Name);
+        root.DropDownItems.Add(new ToolStripMenuItem($"Status: {stateLabel}") { Enabled = false });
+        root.DropDownItems.Add(new ToolStripMenuItem($"Processed: {profile.ProcessedCount} | Failed: {profile.FailedCount}") { Enabled = false });
         root.DropDownItems.Add(new ToolStripMenuItem($"Overflows: {profile.WatcherOverflowCount}") { Enabled = false });
         root.DropDownItems.Add(new ToolStripMenuItem($"Last sync: {FormatTimestamp(profile.LastSuccessfulSyncUtc)}") { Enabled = false });
+        root.DropDownItems.Add(new ToolStripMenuItem($"Last reconcile: {SummarizeReconciliation(profile)}") { Enabled = false });
         root.DropDownItems.Add(new ToolStripSeparator());
+        root.DropDownItems.Add(new ToolStripMenuItem("Open in dashboard", null, async (_, _) => await OpenDashboardAsync(profile.Name)));
         root.DropDownItems.Add(new ToolStripMenuItem("Pause profile", null, (_, _) => PauseProfile(profile.Name))
         {
             Enabled = !profile.IsPaused
@@ -205,15 +219,6 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             Enabled = !string.IsNullOrWhiteSpace(_executablePath)
         });
-
-        if (profile.RecentActivities.Count > 0)
-        {
-            root.DropDownItems.Add(new ToolStripSeparator());
-            foreach (var activity in profile.RecentActivities.Take(5))
-            {
-                root.DropDownItems.Add(new ToolStripMenuItem($"{activity.Kind}: {activity.Summary}") { Enabled = false });
-            }
-        }
 
         return root;
     }
@@ -236,7 +241,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         ShowBalloon($"FolderSync: {profile.Name}", profile.AlertMessage, ToolTipIcon.Warning);
     }
 
-    private async Task OpenDashboardAsync()
+    private async Task OpenDashboardAsync(string? profileName = null)
     {
         try
         {
@@ -245,7 +250,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
             Process.Start(new ProcessStartInfo
             {
-                FileName = DashboardUrl,
+                FileName = BuildDashboardUrl(profileName),
                 UseShellExecute = true
             });
         }
@@ -393,7 +398,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
         catch (UnauthorizedAccessException)
         {
-            ShowBalloon("FolderSync Tray", "Access denied writing FolderSync control state. Run the tray app elevated for control actions.", ToolTipIcon.Warning);
+            HandleControlRequiresElevation();
         }
         catch (Exception ex)
         {
@@ -427,6 +432,29 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             _startWithWindowsItem.Checked = IsStartWithWindowsEnabled();
             ShowBalloon("FolderSync Tray", $"Unable to update startup setting: {ex.Message}", ToolTipIcon.Warning);
+        }
+    }
+
+    private void RestartElevated()
+    {
+        try
+        {
+            var trayExecutable = GetTrayExecutablePath();
+            if (string.IsNullOrWhiteSpace(trayExecutable))
+                throw new InvalidOperationException("Tray executable path is unavailable.");
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = trayExecutable,
+                UseShellExecute = true,
+                Verb = "runas"
+            });
+
+            ExitThread();
+        }
+        catch (Exception ex)
+        {
+            ShowBalloon("FolderSync Tray", $"Unable to restart as administrator: {ex.Message}", ToolTipIcon.Warning);
         }
     }
 
@@ -583,6 +611,21 @@ internal sealed class TrayApplicationContext : ApplicationContext
         return value.Length <= 63 ? value : value[..60] + "...";
     }
 
+    private void HandleControlRequiresElevation()
+    {
+        ShowBalloon("FolderSync Tray", "Pause and resume need administrator access. Use 'Restart as administrator' in the tray menu.", ToolTipIcon.Warning);
+
+        var result = MessageBox.Show(
+            "FolderSync pause and resume actions need administrator access.\n\nRestart the tray app as administrator now?",
+            "FolderSync Tray",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question,
+            MessageBoxDefaultButton.Button1);
+
+        if (result == DialogResult.Yes)
+            RestartElevated();
+    }
+
     private void ApplyControlOverlay()
     {
         if (_healthSnapshot is null || _controlSnapshot is null)
@@ -683,6 +726,102 @@ internal sealed class TrayApplicationContext : ApplicationContext
         return value?.ToLocalTime().ToString("g") ?? "n/a";
     }
 
+    private static string SummarizeReconciliation(ProfileHealthSnapshot profile)
+    {
+        if (profile.RecentActivities.FirstOrDefault(activity => string.Equals(activity.Kind, "reconcile", StringComparison.OrdinalIgnoreCase)) is { } activity)
+        {
+            var detail = string.IsNullOrWhiteSpace(activity.Details)
+                ? string.Empty
+                : $" - {Truncate(activity.Details, 28)}";
+            return $"{Truncate(activity.Summary, 32)}{detail}";
+        }
+
+        return "n/a";
+    }
+
+    private static string Truncate(string value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length <= maxLength)
+            return value;
+
+        return value[..Math.Max(0, maxLength - 1)] + "…";
+    }
+
+    private static string BuildDashboardUrl(string? profileName)
+    {
+        if (string.IsNullOrWhiteSpace(profileName))
+            return DashboardUrl;
+
+        return $"{DashboardUrl}?profile={Uri.EscapeDataString(profileName)}";
+    }
+
+    private void UpdateTrayIcon(string state)
+    {
+        var icon = BuildStatusIcon(state);
+        var oldIcon = _currentTrayIcon;
+        _currentTrayIcon = icon;
+        _notifyIcon.Icon = icon;
+        oldIcon?.Dispose();
+    }
+
+    private static Icon BuildStatusIcon(string state)
+    {
+        var palette = state switch
+        {
+            "error" => (Background: Color.FromArgb(143, 38, 53), Foreground: Color.White, Accent: Color.FromArgb(255, 189, 189)),
+            "warning" => (Background: Color.FromArgb(188, 116, 25), Foreground: Color.White, Accent: Color.FromArgb(255, 225, 168)),
+            "paused" => (Background: Color.FromArgb(74, 88, 107), Foreground: Color.White, Accent: Color.FromArgb(255, 210, 118)),
+            _ => (Background: Color.FromArgb(13, 139, 125), Foreground: Color.White, Accent: Color.FromArgb(181, 250, 238))
+        };
+
+        using var bitmap = new Bitmap(32, 32);
+        using (var graphics = Graphics.FromImage(bitmap))
+        {
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            graphics.Clear(Color.Transparent);
+
+            using var shadowBrush = new SolidBrush(Color.FromArgb(36, 15, 21, 27));
+            graphics.FillEllipse(shadowBrush, 3, 4, 26, 26);
+
+            using var panelBrush = new SolidBrush(palette.Background);
+            using var accentBrush = new SolidBrush(palette.Accent);
+            using var path = CreateRoundedRect(new RectangleF(2, 2, 26, 26), 8f);
+            graphics.FillPath(panelBrush, path);
+            graphics.FillEllipse(accentBrush, 19, 5, 6, 6);
+
+            using var font = new Font("Segoe UI", 12f, FontStyle.Bold, GraphicsUnit.Pixel);
+            using var textBrush = new SolidBrush(palette.Foreground);
+            var format = new StringFormat
+            {
+                Alignment = StringAlignment.Center,
+                LineAlignment = StringAlignment.Center
+            };
+            graphics.DrawString("FS", font, textBrush, new RectangleF(2, 5, 26, 22), format);
+        }
+
+        var handle = bitmap.GetHicon();
+        try
+        {
+            return (Icon)Icon.FromHandle(handle).Clone();
+        }
+        finally
+        {
+            DestroyIcon(handle);
+        }
+    }
+
+    private static GraphicsPath CreateRoundedRect(RectangleF rect, float radius)
+    {
+        var diameter = radius * 2;
+        var path = new GraphicsPath();
+        path.AddArc(rect.X, rect.Y, diameter, diameter, 180, 90);
+        path.AddArc(rect.Right - diameter, rect.Y, diameter, diameter, 270, 90);
+        path.AddArc(rect.Right - diameter, rect.Bottom - diameter, diameter, diameter, 0, 90);
+        path.AddArc(rect.X, rect.Bottom - diameter, diameter, diameter, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
+
     private static string? GetTrayExecutablePath()
     {
         var processPath = Environment.ProcessPath;
@@ -698,6 +837,16 @@ internal sealed class TrayApplicationContext : ApplicationContext
         var currentValue = runKey?.GetValue(StartupValueName) as string;
         return !string.IsNullOrWhiteSpace(currentValue);
     }
+
+    private static bool IsProcessElevated()
+    {
+        var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+        var principal = new System.Security.Principal.WindowsPrincipal(identity);
+        return principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool DestroyIcon(IntPtr hIcon);
 }
 
 internal sealed class RuntimeControlSnapshot

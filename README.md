@@ -62,10 +62,12 @@ The dashboard now supports:
 - quick pause, resume, and reconcile actions
 - per-profile quick actions
 - one-click dashboard launch
+- one-click profile jump into the dashboard
 - one-click open install folder
 - immediate pause-state overlay from the control file
 - tray-originated recent-activity breadcrumbs
 - a `Start with Windows` toggle
+- a `Restart as administrator` option when control actions need elevation
 
 For a deployed service under `C:\FolderSync`, these commands may need an elevated PowerShell window so they can update the control file in the install directory.
 
