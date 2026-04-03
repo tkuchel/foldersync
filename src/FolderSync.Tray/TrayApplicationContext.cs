@@ -331,11 +331,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         if (current == ServiceControllerStatus.Stopped)
         {
+            var canManageService = IsProcessElevated();
             ShowToast(
                 "FolderSync service stopped",
                 "The Windows service is not running. You can restart it or inspect the dashboard.",
-                primaryAction: "start-service",
-                primaryLabel: "Start service",
+                primaryAction: canManageService ? "start-service" : "restart-elevated",
+                primaryLabel: canManageService ? "Start service" : "Restart as admin",
                 secondaryAction: "open-dashboard",
                 secondaryLabel: "Open dashboard",
                 preset: Toast.Warning);
@@ -358,13 +359,22 @@ internal sealed class TrayApplicationContext : ApplicationContext
         if (string.IsNullOrWhiteSpace(profile.AlertMessage))
             return;
 
+        var canManageService = IsProcessElevated();
         ShowToast(
             $"FolderSync alert: {profile.Name}",
             profile.AlertMessage,
             primaryAction: "open-dashboard",
             primaryLabel: "Open dashboard",
-            secondaryAction: _serviceStatus == ServiceControllerStatus.Running ? "reconcile" : "start-service",
-            secondaryLabel: _serviceStatus == ServiceControllerStatus.Running ? "Reconcile now" : "Start service",
+            secondaryAction: _serviceStatus == ServiceControllerStatus.Running
+                ? "reconcile"
+                : canManageService
+                    ? "start-service"
+                    : "restart-elevated",
+            secondaryLabel: _serviceStatus == ServiceControllerStatus.Running
+                ? "Reconcile now"
+                : canManageService
+                    ? "Start service"
+                    : "Restart as admin",
             payload: new Dictionary<string, string> { ["profile"] = profile.Name },
             preset: Toast.Warning);
     }
@@ -449,6 +459,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
                     RestartElevated();
                     break;
                 case "start-service":
+                    if (!IsProcessElevated())
+                    {
+                        ShowBalloon("FolderSync Tray", "Restarting elevated so service controls can run.", ToolTipIcon.Info);
+                        RestartElevated();
+                        break;
+                    }
                     StartService();
                     break;
             }
