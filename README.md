@@ -30,6 +30,12 @@ foldersync resume --profile example-workspace
 foldersync dashboard
 ```
 
+Tray companion:
+
+```powershell
+dotnet run --project src\FolderSync.Tray\FolderSync.Tray.csproj
+```
+
 `status --verbose` is the best human-oriented operator view.
 
 `status --json` emits the full structured service/runtime report, including install/config/log paths, runtime counters, reconciliation metadata, and recent activity.
@@ -49,7 +55,29 @@ The dashboard now supports:
 - per-profile recent activity history
 - one-click profile reconciliation from the installed service
 
+`FolderSync.Tray` is a lightweight Windows tray companion for the installed service. The first version provides:
+
+- live tray status from the persisted health snapshot
+- alert balloons for service/profile warnings
+- quick pause, resume, and reconcile actions
+- per-profile quick actions
+- one-click dashboard launch
+- one-click profile jump into the dashboard
+- one-click open install folder
+- immediate pause-state overlay from the control file
+- tray-originated recent-activity breadcrumbs
+- a `Start with Windows` toggle
+- a `Restart as administrator` option when control actions need elevation
+
 For a deployed service under `C:\FolderSync`, these commands may need an elevated PowerShell window so they can update the control file in the install directory.
+
+The tray app works best as a published executable. The local deploy script now publishes it to:
+
+```text
+C:\FolderSync\Tray\foldersync-tray.exe
+```
+
+If you run it via `dotnet run`, the `Start with Windows` option will point at the current process path rather than a separately installed tray binary.
 
 ## Configuration
 
@@ -169,6 +197,7 @@ This script:
 - runs tests by default
 - validates the live `C:\FolderSync\appsettings.json`
 - publishes fresh binaries from the repo
+- publishes the tray companion to `C:\FolderSync\Tray\`
 - preserves the live `appsettings.json`
 - leaves the `logs` directory untouched
 - stops and restarts the `FolderSync` service when needed
@@ -179,4 +208,5 @@ Useful options:
 powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1 -WhatIf
 powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1 -SkipTests
 powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1 -NoRestart
+powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1 -SkipTray
 ```

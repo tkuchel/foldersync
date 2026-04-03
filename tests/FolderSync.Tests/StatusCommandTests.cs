@@ -170,6 +170,153 @@ public sealed class StatusCommandTests
     }
 
     [Fact]
+    [SupportedOSPlatform("windows")]
+    public void BuildStatusReport_OverlaysProfilePauseStateFromControlFile()
+    {
+        var installDir = Directory.CreateTempSubdirectory();
+
+        try
+        {
+            var exePath = Path.Combine(installDir.FullName, "foldersync.exe");
+            File.WriteAllBytes(exePath, [0x4D, 0x5A]);
+
+            File.WriteAllText(Path.Combine(installDir.FullName, "appsettings.json"), """
+            {
+              "FolderSync": {
+                "Profiles": [
+                  { "Name": "alpha" }
+                ]
+              }
+            }
+            """);
+
+            File.WriteAllText(Path.Combine(installDir.FullName, "foldersync-control.json"), """
+            {
+              "isPaused": false,
+              "profiles": [
+                {
+                  "name": "alpha",
+                  "isPaused": true,
+                  "reason": "Maintenance window",
+                  "changedAtUtc": "2026-04-03T03:00:00+00:00"
+                }
+              ]
+            }
+            """);
+
+            File.WriteAllText(Path.Combine(installDir.FullName, "foldersync-health.json"), """
+            {
+              "serviceName": "FolderSync",
+              "serviceState": "Running",
+              "startedAtUtc": "2026-04-03T02:00:00+00:00",
+              "updatedAtUtc": "2026-04-03T02:05:00+00:00",
+              "profiles": [
+                {
+                  "name": "alpha",
+                  "state": "Running",
+                  "processedCount": 2,
+                  "succeededCount": 2,
+                  "skippedCount": 0,
+                  "failedCount": 0,
+                  "watcherOverflowCount": 0,
+                  "reconciliation": {
+                    "runCount": 1,
+                    "lastTrigger": "Startup",
+                    "lastSuccess": true,
+                    "lastExitCode": 2
+                  }
+                }
+              ]
+            }
+            """);
+
+            var report = StatusCommand.BuildStatusReport("FolderSync", "RUNNING", "Running", $"\"{exePath}\"");
+
+            Assert.NotNull(report.Control);
+            Assert.NotNull(report.Runtime);
+            var profile = Assert.Single(report.Runtime!.Profiles);
+            Assert.True(profile.IsPaused);
+            Assert.Equal("Maintenance window", profile.PauseReason);
+            Assert.Equal("Paused", profile.State);
+        }
+        finally
+        {
+            installDir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    [SupportedOSPlatform("windows")]
+    public void BuildStatusReport_OverlaysGlobalPauseStateFromControlFile()
+    {
+        var installDir = Directory.CreateTempSubdirectory();
+
+        try
+        {
+            var exePath = Path.Combine(installDir.FullName, "foldersync.exe");
+            File.WriteAllBytes(exePath, [0x4D, 0x5A]);
+
+            File.WriteAllText(Path.Combine(installDir.FullName, "appsettings.json"), """
+            {
+              "FolderSync": {
+                "Profiles": [
+                  { "Name": "alpha" }
+                ]
+              }
+            }
+            """);
+
+            File.WriteAllText(Path.Combine(installDir.FullName, "foldersync-control.json"), """
+            {
+              "isPaused": true,
+              "reason": "Global maintenance",
+              "changedAtUtc": "2026-04-03T03:10:00+00:00"
+            }
+            """);
+
+            File.WriteAllText(Path.Combine(installDir.FullName, "foldersync-health.json"), """
+            {
+              "serviceName": "FolderSync",
+              "serviceState": "Running",
+              "startedAtUtc": "2026-04-03T02:00:00+00:00",
+              "updatedAtUtc": "2026-04-03T02:05:00+00:00",
+              "profiles": [
+                {
+                  "name": "alpha",
+                  "state": "Running",
+                  "processedCount": 2,
+                  "succeededCount": 2,
+                  "skippedCount": 0,
+                  "failedCount": 0,
+                  "watcherOverflowCount": 0,
+                  "reconciliation": {
+                    "runCount": 1,
+                    "lastTrigger": "Startup",
+                    "lastSuccess": true,
+                    "lastExitCode": 2
+                  }
+                }
+              ]
+            }
+            """);
+
+            var report = StatusCommand.BuildStatusReport("FolderSync", "RUNNING", "Running", $"\"{exePath}\"");
+
+            Assert.NotNull(report.Runtime);
+            Assert.True(report.Runtime!.IsPaused);
+            Assert.Equal("Global maintenance", report.Runtime.PauseReason);
+            var profile = Assert.Single(report.Runtime.Profiles);
+            Assert.True(profile.IsPaused);
+            Assert.Equal("Global maintenance", profile.PauseReason);
+            Assert.Equal("Paused", profile.State);
+        }
+        finally
+        {
+            installDir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void HealthPayload_UsesRuntimeProfiles()
     {
         var report = new StatusReport
