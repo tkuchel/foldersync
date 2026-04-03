@@ -8,10 +8,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>FolderSync.Tray</RootNamespace>
     <AssemblyName>foldersync-tray</AssemblyName>
+    <ApplicationIcon>Assets\foldersync.ico</ApplicationIcon>
     <Version>1.0.0</Version>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <FileVersion>1.0.0.0</FileVersion>
     <InformationalVersion>1.0.0</InformationalVersion>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="Assets\foldersync.ico" />
+  </ItemGroup>
 
 </Project>

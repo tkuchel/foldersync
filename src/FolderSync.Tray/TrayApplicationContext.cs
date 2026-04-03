@@ -141,6 +141,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         var overallState = _healthSnapshot?.ServiceState ?? "Unknown";
         var pausedText = _controlSnapshot?.IsPaused is true ? $"Paused ({_controlSnapshot.Reason ?? "no reason"})" : overallState;
         _statusItem.Text = $"FolderSync: {pausedText}";
+        RepairStartupRegistrationIfNeeded();
         _startWithWindowsItem.Checked = IsStartWithWindowsEnabled();
         _restartElevatedItem.Visible = !IsProcessElevated();
 
@@ -419,7 +420,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
             if (_startWithWindowsItem.Checked)
             {
-                runKey.SetValue(StartupValueName, $"\"{trayExecutable}\"");
+                runKey.SetValue(StartupValueName, FormatStartupCommand(trayExecutable));
                 ShowBalloon("FolderSync Tray", "Tray app will now start with Windows.", ToolTipIcon.Info);
             }
             else
@@ -432,6 +433,33 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             _startWithWindowsItem.Checked = IsStartWithWindowsEnabled();
             ShowBalloon("FolderSync Tray", $"Unable to update startup setting: {ex.Message}", ToolTipIcon.Warning);
+        }
+    }
+
+    private void RepairStartupRegistrationIfNeeded()
+    {
+        try
+        {
+            if (!IsStartWithWindowsEnabled())
+                return;
+
+            var trayExecutable = GetTrayExecutablePath();
+            if (string.IsNullOrWhiteSpace(trayExecutable))
+                return;
+
+            using var runKey = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true);
+            if (runKey is null)
+                return;
+
+            var currentValue = runKey.GetValue(StartupValueName) as string;
+            var desiredValue = FormatStartupCommand(trayExecutable);
+            if (!string.Equals(currentValue, desiredValue, StringComparison.OrdinalIgnoreCase))
+            {
+                runKey.SetValue(StartupValueName, desiredValue);
+            }
+        }
+        catch
+        {
         }
     }
 
@@ -822,8 +850,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
         return path;
     }
 
-    private static string? GetTrayExecutablePath()
+    private string? GetTrayExecutablePath()
     {
+        if (!string.IsNullOrWhiteSpace(_installDirectory))
+        {
+            var installPath = Path.Combine(_installDirectory, "Tray", "foldersync-tray.exe");
+            if (File.Exists(installPath))
+                return installPath;
+        }
+
         var processPath = Environment.ProcessPath;
         if (!string.IsNullOrWhiteSpace(processPath) && File.Exists(processPath))
             return processPath;
@@ -836,6 +871,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
         using var runKey = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: false);
         var currentValue = runKey?.GetValue(StartupValueName) as string;
         return !string.IsNullOrWhiteSpace(currentValue);
+    }
+
+    private static string FormatStartupCommand(string trayExecutable)
+    {
+        return $"\"{trayExecutable}\"";
     }
 
     private static bool IsProcessElevated()

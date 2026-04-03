@@ -77,7 +77,12 @@ The tray app works best as a published executable. The local deploy script now p
 C:\FolderSync\Tray\foldersync-tray.exe
 ```
 
-If you run it via `dotnet run`, the `Start with Windows` option will point at the current process path rather than a separately installed tray binary.
+The tray app's `Start with Windows` option now prefers that installed binary path, so Windows startup surfaces such as Task Manager can pick up the real application icon more reliably.
+
+The deploy script also creates Start Menu shortcuts for:
+
+- `FolderSync Tray`
+- `FolderSync Dashboard`
 
 ## Configuration
 
@@ -198,6 +203,7 @@ This script:
 - validates the live `C:\FolderSync\appsettings.json`
 - publishes fresh binaries from the repo
 - publishes the tray companion to `C:\FolderSync\Tray\`
+- creates Start Menu shortcuts for the tray and dashboard
 - preserves the live `appsettings.json`
 - leaves the `logs` directory untouched
 - stops and restarts the `FolderSync` service when needed

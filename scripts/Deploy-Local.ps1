@@ -86,6 +86,39 @@ function Remove-StalePublishDirectories {
     }
 }
 
+function New-StartMenuShortcut {
+    param(
+        [Parameter(Mandatory = $true)][string]$ShortcutPath,
+        [Parameter(Mandatory = $true)][string]$TargetPath,
+        [string]$Arguments = "",
+        [string]$WorkingDirectory = "",
+        [string]$Description = "",
+        [string]$IconLocation = ""
+    )
+
+    $shortcutDirectory = Split-Path -Parent $ShortcutPath
+    if (-not (Test-Path $shortcutDirectory)) {
+        New-Item -ItemType Directory -Path $shortcutDirectory | Out-Null
+    }
+
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($ShortcutPath)
+    $shortcut.TargetPath = $TargetPath
+    if (-not [string]::IsNullOrWhiteSpace($Arguments)) {
+        $shortcut.Arguments = $Arguments
+    }
+    if (-not [string]::IsNullOrWhiteSpace($WorkingDirectory)) {
+        $shortcut.WorkingDirectory = $WorkingDirectory
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Description)) {
+        $shortcut.Description = $Description
+    }
+    if (-not [string]::IsNullOrWhiteSpace($IconLocation)) {
+        $shortcut.IconLocation = $IconLocation
+    }
+    $shortcut.Save()
+}
+
 $repoRoot = if ([string]::IsNullOrWhiteSpace($PSScriptRoot)) {
     (Get-Location).Path
 }
@@ -97,6 +130,7 @@ $projectPath = Join-Path $repoRoot "src\FolderSync\FolderSync.csproj"
 $trayProjectPath = Join-Path $repoRoot "src\FolderSync.Tray\FolderSync.Tray.csproj"
 $targetDir = Assert-SafeTargetDirectory -Path $TargetDir
 $trayTargetDir = Join-Path $targetDir "Tray"
+$startMenuDir = Join-Path ([Environment]::GetFolderPath("Programs")) "FolderSync"
 $tempRoot = [System.IO.Path]::GetTempPath()
 $publishDir = Join-Path $tempRoot ("foldersync-publish-" + [guid]::NewGuid().ToString("N"))
 $trayPublishDir = Join-Path $tempRoot ("foldersync-tray-publish-" + [guid]::NewGuid().ToString("N"))
@@ -173,6 +207,27 @@ try {
             Write-Host "Updating tray companion in $trayTargetDir..."
             Invoke-RobocopyCopy -Source $trayPublishDir -Destination $trayTargetDir
         }
+
+        $trayExePath = Join-Path $trayTargetDir "foldersync-tray.exe"
+        $serviceExePath = Join-Path $targetDir "foldersync.exe"
+        $trayShortcutPath = Join-Path $startMenuDir "FolderSync Tray.lnk"
+        $dashboardShortcutPath = Join-Path $startMenuDir "FolderSync Dashboard.lnk"
+        if ($PSCmdlet.ShouldProcess($startMenuDir, "Create Start Menu shortcuts")) {
+            Write-Host "Updating Start Menu shortcuts in $startMenuDir..."
+            New-StartMenuShortcut `
+                -ShortcutPath $trayShortcutPath `
+                -TargetPath $trayExePath `
+                -WorkingDirectory $trayTargetDir `
+                -Description "FolderSync tray companion" `
+                -IconLocation $trayExePath
+            New-StartMenuShortcut `
+                -ShortcutPath $dashboardShortcutPath `
+                -TargetPath $serviceExePath `
+                -Arguments "dashboard" `
+                -WorkingDirectory $targetDir `
+                -Description "FolderSync dashboard" `
+                -IconLocation $trayExePath
+        }
     }
 
     if (-not $NoRestart -and $wasRunning -and $PSCmdlet.ShouldProcess($ServiceName, "Start Windows service")) {
@@ -190,6 +245,7 @@ try {
     if (-not $SkipTray) {
         Write-Host "Tray companion published to $trayTargetDir"
         Write-Host "Launch it with $([System.IO.Path]::Combine($trayTargetDir, 'foldersync-tray.exe'))"
+        Write-Host "Start Menu shortcuts updated in $startMenuDir"
     }
 }
 finally {
