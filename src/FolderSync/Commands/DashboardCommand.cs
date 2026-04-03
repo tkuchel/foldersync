@@ -104,6 +104,18 @@ public static class DashboardCommand
                 return;
             }
 
+            if (string.Equals(path, "/api/config", StringComparison.OrdinalIgnoreCase))
+            {
+                await HandleConfigRequestAsync(context, serviceName);
+                return;
+            }
+
+            if (string.Equals(path, "/api/config/profile", StringComparison.OrdinalIgnoreCase))
+            {
+                await HandleProfileConfigRequestAsync(context, serviceName);
+                return;
+            }
+
             if (string.Equals(path, "/api/control/pause", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(path, "/api/control/resume", StringComparison.OrdinalIgnoreCase))
             {
@@ -134,6 +146,129 @@ public static class DashboardCommand
         response.ContentType = "application/json; charset=utf-8";
         var bytes = JsonSerializer.SerializeToUtf8Bytes(payload, new JsonSerializerOptions { WriteIndented = true });
         await response.OutputStream.WriteAsync(bytes);
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static async Task HandleConfigRequestAsync(HttpListenerContext context, string serviceName)
+    {
+        if (!string.Equals(context.Request.HttpMethod, "GET", StringComparison.OrdinalIgnoreCase))
+        {
+            context.Response.StatusCode = 405;
+            await WriteJsonAsync(context.Response, new { error = "GET required." });
+            return;
+        }
+
+        var report = StatusCommand.TryBuildStatusReport(serviceName, out var error);
+        if (report is null || string.IsNullOrWhiteSpace(report.ConfigPath))
+        {
+            context.Response.StatusCode = 500;
+            await WriteJsonAsync(context.Response, new { error = error ?? "Installed appsettings.json not found." });
+            return;
+        }
+
+        try
+        {
+            var snapshot = DashboardProfileConfigManager.Load(report.ConfigPath);
+            await WriteJsonAsync(context.Response, snapshot);
+        }
+        catch (Exception ex)
+        {
+            context.Response.StatusCode = 500;
+            await WriteJsonAsync(context.Response, new { error = $"Failed to load configuration: {ex.Message}" });
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static async Task HandleProfileConfigRequestAsync(HttpListenerContext context, string serviceName)
+    {
+        var report = StatusCommand.TryBuildStatusReport(serviceName, out var error);
+        if (report is null || string.IsNullOrWhiteSpace(report.ConfigPath))
+        {
+            context.Response.StatusCode = 500;
+            await WriteJsonAsync(context.Response, new { error = error ?? "Installed appsettings.json not found." });
+            return;
+        }
+
+        try
+        {
+            if (string.Equals(context.Request.HttpMethod, "POST", StringComparison.OrdinalIgnoreCase))
+            {
+                var request = await ReadJsonBodyAsync<DashboardProfileEditRequest>(context);
+                if (request is null)
+                {
+                    context.Response.StatusCode = 400;
+                    await WriteJsonAsync(context.Response, new { error = "Invalid request payload." });
+                    return;
+                }
+
+                var result = DashboardProfileConfigManager.SaveProfile(report.ConfigPath, request);
+                context.Response.StatusCode = result.Success ? 200 : 400;
+                await WriteJsonAsync(context.Response, new
+                {
+                    ok = result.Success,
+                    snapshot = result.Snapshot,
+                    errors = result.Errors,
+                    warnings = result.Snapshot.Warnings,
+                    restartRequired = true,
+                    restartMessage = "Config saved. Restart the FolderSync service to apply profile changes."
+                });
+                return;
+            }
+
+            if (string.Equals(context.Request.HttpMethod, "DELETE", StringComparison.OrdinalIgnoreCase))
+            {
+                var request = await ReadJsonBodyAsync<DashboardProfileDeleteRequest>(context);
+                if (request is null || string.IsNullOrWhiteSpace(request.ProfileName))
+                {
+                    context.Response.StatusCode = 400;
+                    await WriteJsonAsync(context.Response, new { error = "ProfileName is required." });
+                    return;
+                }
+
+                var result = DashboardProfileConfigManager.DeleteProfile(report.ConfigPath, request.ProfileName);
+                context.Response.StatusCode = result.Success ? 200 : 400;
+                await WriteJsonAsync(context.Response, new
+                {
+                    ok = result.Success,
+                    snapshot = result.Snapshot,
+                    errors = result.Errors,
+                    warnings = result.Snapshot.Warnings,
+                    restartRequired = true,
+                    restartMessage = "Config saved. Restart the FolderSync service to apply profile changes."
+                });
+                return;
+            }
+
+            context.Response.StatusCode = 405;
+            await WriteJsonAsync(context.Response, new { error = "POST or DELETE required." });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            context.Response.StatusCode = 403;
+            await WriteJsonAsync(context.Response, new { error = $"Access denied writing {report.ConfigPath}. Re-run the dashboard from an elevated PowerShell window." });
+        }
+        catch (Exception ex)
+        {
+            context.Response.StatusCode = 500;
+            await WriteJsonAsync(context.Response, new { error = $"Failed to update configuration: {ex.Message}" });
+        }
+    }
+
+    private static async Task<T?> ReadJsonBodyAsync<T>(HttpListenerContext context)
+    {
+        try
+        {
+            using var reader = new StreamReader(context.Request.InputStream, context.Request.ContentEncoding ?? Encoding.UTF8);
+            var body = await reader.ReadToEndAsync();
+            if (string.IsNullOrWhiteSpace(body))
+                return default;
+
+            return JsonSerializer.Deserialize<T>(body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+        catch
+        {
+            return default;
+        }
     }
 
     [SupportedOSPlatform("windows")]
@@ -526,10 +661,12 @@ public static class DashboardCommand
     .hero-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
     .toolbar { display:flex; flex-wrap:wrap; gap:12px; align-items:end; margin: 20px 0 10px; }
     .toolbar label { display:grid; gap:6px; font-size:.85rem; color: var(--muted); }
-    .toolbar input { min-width: 220px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); color: var(--ink); }
+    .toolbar input, .toolbar select, .modal input, .modal select, .modal textarea { min-width: 220px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); color: var(--ink); font: inherit; }
+    .modal textarea { min-height: 88px; resize: vertical; }
     .toolbar button, .actions button, .toggle, .theme-toggle { border: 0; border-radius: 999px; padding: 10px 14px; background: var(--accent); color: white; font-weight: 600; cursor: pointer; transition: transform .15s ease, opacity .15s ease; }
     .toolbar button:hover, .actions button:hover, .toggle:hover, .theme-toggle:hover { transform: translateY(-1px); }
     .toolbar button.secondary, .actions button.secondary, .toggle.secondary, .theme-toggle.secondary { background: var(--button-secondary-bg); color: var(--button-secondary-ink); }
+    .toolbar .spacer { flex: 1 1 auto; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
     .card { background: var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 18px; box-shadow: var(--shadow); }
     .label { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 6px; }
@@ -559,13 +696,32 @@ public static class DashboardCommand
     .toast { display:none; margin-top: 16px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--border); background: var(--subtle); }
     .toast.error { border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); color: var(--danger); background: var(--danger-bg); }
     .toast.success { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); color: var(--accent); background: var(--success-bg); }
+    .toast.warn { border-color: color-mix(in srgb, var(--warn) 35%, var(--border)); color: var(--warn); background: var(--warn-bg); }
     .error { color: var(--danger); }
+    .config-note { margin-top: 14px; padding: 12px 14px; border-radius: 14px; background: var(--warn-bg); color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--border)); }
+    .modal-shell { position: fixed; inset: 0; display:none; align-items:center; justify-content:center; background: rgba(8, 12, 18, .55); padding: 20px; z-index: 20; }
+    .modal-shell.open { display:flex; }
+    .modal { width: min(920px, 100%); max-height: calc(100vh - 40px); overflow:auto; background: var(--panel); border: 1px solid var(--border); border-radius: 22px; box-shadow: var(--shadow); padding: 20px; }
+    .modal-head { display:flex; justify-content:space-between; align-items:start; gap:12px; margin-bottom: 16px; }
+    .modal-title { margin:0; font-size: 1.3rem; }
+    .modal-subtitle { color: var(--muted); margin-top: 6px; }
+    .modal-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+    .modal-grid label, .modal-stack label { display:grid; gap:6px; font-size:.85rem; color: var(--muted); }
+    .modal-stack { display:grid; gap: 12px; margin-top: 12px; }
+    .modal-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+    .modal-section h3 { margin: 0 0 10px; font-size: 1rem; }
+    .checkbox-row { display:flex; gap:16px; flex-wrap:wrap; }
+    .checkbox-row label { display:flex; gap:8px; align-items:center; font-size:.95rem; color: var(--ink); }
+    .modal-actions { display:flex; gap:10px; justify-content:flex-end; margin-top: 18px; }
+    .profile-empty { padding: 18px; border: 1px dashed var(--border); border-radius: 18px; color: var(--muted); text-align:center; background: color-mix(in srgb, var(--panel) 88%, var(--subtle)); }
     pre { white-space: pre-wrap; background: var(--subtle); border: 1px solid var(--border); border-radius: 12px; padding: 12px; font-size: .85rem; }
     @media (max-width: 720px) {
       .hero { align-items: start; }
       .hero-actions { justify-content:flex-start; }
       .toolbar { flex-direction: column; align-items: stretch; }
       .toolbar input { min-width: 0; width: 100%; }
+      .toolbar .spacer { display:none; }
+      .modal-actions { justify-content:stretch; flex-direction:column; }
     }
   </style>
 </head>
@@ -611,13 +767,72 @@ public static class DashboardCommand
       </label>
       <button id="pause-all">Pause all</button>
       <button id="resume-all" class="secondary">Resume all</button>
+      <div class="spacer"></div>
+      <button id="add-profile" class="secondary" type="button">Add profile</button>
     </div>
 
     <div class="profiles" id="profiles"></div>
     <div class="toast" id="action-toast"></div>
+    <div class="config-note" id="config-note" style="display:none;"></div>
     <div class="card" id="error-card" style="display:none; margin-top: 16px;">
       <div class="label">Error</div>
       <div class="error" id="error-text"></div>
+    </div>
+  </div>
+
+  <div class="modal-shell" id="profile-modal-shell" aria-hidden="true">
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <h2 class="modal-title" id="profile-modal-title">Add profile</h2>
+          <div class="modal-subtitle">Changes are saved to <code>appsettings.json</code>. Restart the FolderSync service afterward to apply pipeline changes.</div>
+        </div>
+        <button id="profile-modal-close" class="theme-toggle secondary" type="button">Close</button>
+      </div>
+      <div class="modal-grid">
+        <label>Name<input id="profile-name" type="text" placeholder="workspace-name"></label>
+        <label>Source path<input id="profile-source" type="text" placeholder="C:\\Path\\To\\Source"></label>
+        <label>Destination path<input id="profile-destination" type="text" placeholder="D:\\Path\\To\\Destination"></label>
+        <label>Delete mode
+          <select id="profile-delete-mode">
+            <option value="">Inherit defaults</option>
+            <option value="Archive">Archive</option>
+            <option value="Delete">Delete</option>
+          </select>
+        </label>
+        <label>Delete archive path<input id="profile-delete-archive" type="text" placeholder="Optional archive path"></label>
+        <label>Reconciliation interval (minutes)<input id="profile-reconcile-interval" type="number" min="1" step="1" placeholder="15"></label>
+      </div>
+      <div class="modal-section">
+        <h3>Flags</h3>
+        <div class="checkbox-row">
+          <label><input id="profile-include-subdirs" type="checkbox"> Include subdirectories</label>
+          <label><input id="profile-sync-deletions" type="checkbox"> Sync deletions</label>
+          <label><input id="profile-dry-run" type="checkbox"> Dry run</label>
+          <label><input id="profile-reconcile-enabled" type="checkbox"> Reconciliation enabled</label>
+          <label><input id="profile-reconcile-startup" type="checkbox"> Run reconciliation on startup</label>
+          <label><input id="profile-use-robocopy" type="checkbox"> Use robocopy</label>
+        </div>
+      </div>
+      <div class="modal-section">
+        <h3>Reconciliation options</h3>
+        <div class="modal-stack">
+          <label>Robocopy options<textarea id="profile-robocopy-options" placeholder="/E /FFT /Z /R:2 /W:5 /XO /NFL /NDL /NP /XJ"></textarea></label>
+        </div>
+      </div>
+      <div class="modal-section">
+        <h3>Exclusions</h3>
+        <div class="modal-grid">
+          <label>Directory names<textarea id="profile-exclusion-dirs" placeholder=".git&#10;node_modules"></textarea></label>
+          <label>File patterns<textarea id="profile-exclusion-patterns" placeholder="*.tmp&#10;*.partial"></textarea></label>
+          <label>Extensions<textarea id="profile-exclusion-extensions" placeholder=".tmp&#10;.bak"></textarea></label>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="profile-delete" class="secondary" type="button" style="margin-right:auto; display:none;">Delete profile</button>
+        <button id="profile-cancel" class="secondary" type="button">Cancel</button>
+        <button id="profile-save" type="button">Save profile</button>
+      </div>
     </div>
   </div>
 
@@ -627,7 +842,9 @@ public static class DashboardCommand
     const expandedProfiles = new Set(JSON.parse(localStorage.getItem(expandedKey) || '[]'));
     const defaultIconHref = '{{GetDashboardIconDataUrl()}}';
     let currentData = null;
+    let currentConfig = null;
     let lastToastTimeout = null;
+    let editingOriginalName = null;
 
     function escapeHtml(value) {
       return String(value || '')
@@ -757,6 +974,148 @@ public static class DashboardCommand
       return data;
     }
 
+    async function getConfig() {
+      const response = await fetch('/api/config', { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to load configuration');
+      currentConfig = data;
+      renderConfigNote(data);
+      return data;
+    }
+
+    async function saveProfile(payload) {
+      const response = await fetch('/api/config/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error((data.errors || [data.error || 'Failed to save profile']).join('\n'));
+      currentConfig = data.snapshot;
+      renderConfigNote(currentConfig, data.restartMessage);
+      return data;
+    }
+
+    async function deleteProfile(profileName) {
+      const response = await fetch('/api/config/profile', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileName })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error((data.errors || [data.error || 'Failed to delete profile']).join('\n'));
+      currentConfig = data.snapshot;
+      renderConfigNote(currentConfig, data.restartMessage);
+      return data;
+    }
+
+    function renderConfigNote(snapshot, restartMessage) {
+      const note = document.getElementById('config-note');
+      if (!snapshot && !restartMessage) {
+        note.style.display = 'none';
+        note.textContent = '';
+        return;
+      }
+
+      const warnings = snapshot?.Warnings || [];
+      const parts = [];
+      if (restartMessage) parts.push(restartMessage);
+      if (warnings.length) parts.push(`Validation warnings: ${warnings.join(' | ')}`);
+      note.textContent = parts.join(' ');
+      note.style.display = parts.length ? 'block' : 'none';
+    }
+
+    function splitLines(value) {
+      return String(value || '')
+        .split(/\r?\n|,/)
+        .map(item => item.trim())
+        .filter(Boolean);
+    }
+
+    function setCheckbox(id, value, fallback = false) {
+      document.getElementById(id).checked = value ?? fallback;
+    }
+
+    function setValue(id, value) {
+      document.getElementById(id).value = value ?? '';
+    }
+
+    function getNullableText(id) {
+      const value = document.getElementById(id).value.trim();
+      return value ? value : null;
+    }
+
+    function getNullableInt(id) {
+      const value = document.getElementById(id).value.trim();
+      if (!value) return null;
+      const parsed = Number.parseInt(value, 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function openProfileModal(profile) {
+      const isEdit = !!profile;
+      editingOriginalName = profile?.Name || null;
+      document.getElementById('profile-modal-title').textContent = isEdit ? `Edit ${profile.Name}` : 'Add profile';
+      document.getElementById('profile-delete').style.display = isEdit ? 'inline-block' : 'none';
+
+      setValue('profile-name', profile?.Name);
+      setValue('profile-source', profile?.SourcePath);
+      setValue('profile-destination', profile?.DestinationPath);
+      setValue('profile-delete-mode', profile?.DeleteMode);
+      setValue('profile-delete-archive', profile?.DeleteArchivePath);
+      setValue('profile-reconcile-interval', profile?.Reconciliation?.IntervalMinutes);
+      setCheckbox('profile-include-subdirs', profile?.IncludeSubdirectories, true);
+      setCheckbox('profile-sync-deletions', profile?.SyncDeletions, false);
+      setCheckbox('profile-dry-run', profile?.DryRun, false);
+      setCheckbox('profile-reconcile-enabled', profile?.Reconciliation?.Enabled, true);
+      setCheckbox('profile-reconcile-startup', profile?.Reconciliation?.RunOnStartup, true);
+      setCheckbox('profile-use-robocopy', profile?.Reconciliation?.UseRobocopy, true);
+      setValue('profile-robocopy-options', profile?.Reconciliation?.RobocopyOptions);
+      setValue('profile-exclusion-dirs', (profile?.Exclusions?.DirectoryNames || []).join('\n'));
+      setValue('profile-exclusion-patterns', (profile?.Exclusions?.FilePatterns || []).join('\n'));
+      setValue('profile-exclusion-extensions', (profile?.Exclusions?.Extensions || []).join('\n'));
+
+      const shell = document.getElementById('profile-modal-shell');
+      shell.classList.add('open');
+      shell.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeProfileModal() {
+      editingOriginalName = null;
+      const shell = document.getElementById('profile-modal-shell');
+      shell.classList.remove('open');
+      shell.setAttribute('aria-hidden', 'true');
+    }
+
+    function collectProfileForm() {
+      const exclusions = {
+        DirectoryNames: splitLines(document.getElementById('profile-exclusion-dirs').value),
+        FilePatterns: splitLines(document.getElementById('profile-exclusion-patterns').value),
+        Extensions: splitLines(document.getElementById('profile-exclusion-extensions').value)
+      };
+
+      return {
+        Name: document.getElementById('profile-name').value.trim(),
+        SourcePath: document.getElementById('profile-source').value.trim(),
+        DestinationPath: document.getElementById('profile-destination').value.trim(),
+        IncludeSubdirectories: document.getElementById('profile-include-subdirs').checked,
+        SyncDeletions: document.getElementById('profile-sync-deletions').checked,
+        DeleteMode: getNullableText('profile-delete-mode'),
+        DeleteArchivePath: getNullableText('profile-delete-archive'),
+        DryRun: document.getElementById('profile-dry-run').checked,
+        Reconciliation: {
+          Enabled: document.getElementById('profile-reconcile-enabled').checked,
+          IntervalMinutes: getNullableInt('profile-reconcile-interval') ?? 15,
+          RunOnStartup: document.getElementById('profile-reconcile-startup').checked,
+          UseRobocopy: document.getElementById('profile-use-robocopy').checked,
+          RobocopyOptions: document.getElementById('profile-robocopy-options').value.trim()
+        },
+        Exclusions: (exclusions.DirectoryNames.length || exclusions.FilePatterns.length || exclusions.Extensions.length)
+          ? exclusions
+          : null
+      };
+    }
+
     function matchesFilter(profile, filterText) {
       if (!filterText) return true;
       return profile.Name.toLowerCase().includes(filterText.toLowerCase());
@@ -785,7 +1144,14 @@ public static class DashboardCommand
         const host = document.getElementById('profiles');
         host.innerHTML = '';
         const filterText = document.getElementById('profile-filter').value.trim();
-        for (const profile of (data.Runtime?.Profiles || []).filter(item => matchesFilter(item, filterText))) {
+        const runtimeProfiles = data.Runtime?.Profiles || [];
+        const configuredProfiles = currentConfig?.Profiles || [];
+        const visibleProfiles = runtimeProfiles.filter(item => matchesFilter(item, filterText));
+        if (visibleProfiles.length === 0 && !filterText && configuredProfiles.length === 0) {
+          host.innerHTML = '<div class="profile-empty">No profiles are configured yet. Use <strong>Add profile</strong> to create one.</div>';
+        }
+        for (const profile of visibleProfiles) {
+          const configuredProfile = configuredProfiles.find(item => item.Name.toLowerCase() === profile.Name.toLowerCase()) || null;
           const div = document.createElement('div');
           div.className = 'profile';
           const pillClass = profileStatusClass(profile);
@@ -816,6 +1182,7 @@ public static class DashboardCommand
               <button data-action="pause-profile" data-profile="${safeName}">Pause profile</button>
               <button data-action="resume-profile" data-profile="${safeName}" class="secondary">Resume profile</button>
               <button data-action="reconcile-profile" data-profile="${safeName}" class="secondary">Reconcile now</button>
+              <button data-action="edit-profile" data-profile="${safeName}" class="secondary">Edit profile</button>
             </div>
             <details class="history" data-profile="${safeName}" ${historyOpen}>
               <summary><span class="toggle secondary">Recent activity</span></summary>
@@ -834,6 +1201,30 @@ public static class DashboardCommand
             ${profile.AlertMessage ? `<pre>${escapeHtml(profile.AlertMessage)}</pre>` : ''}
           `;
           host.appendChild(div);
+        }
+
+        if (!filterText) {
+          for (const profile of configuredProfiles.filter(item => !runtimeProfiles.some(runtime => runtime.Name.toLowerCase() === item.Name.toLowerCase()))) {
+            const div = document.createElement('div');
+            div.className = 'profile';
+            const safeName = escapeHtml(profile.Name);
+            div.innerHTML = `
+              <div class="profile-head">
+                <div class="profile-title">
+                  <strong>${safeName}</strong>
+                  <div class="profile-subtitle">Configured but not active in the current runtime snapshot yet.</div>
+                </div>
+                <span class="pill warn">Configured only</span>
+              </div>
+              <div class="stats">
+                <div class="stat"><div class="stat-label">Source</div><div class="stat-value">${escapeHtml(profile.SourcePath || 'n/a')}</div></div>
+                <div class="stat"><div class="stat-label">Destination</div><div class="stat-value">${escapeHtml(profile.DestinationPath || 'n/a')}</div></div>
+              </div>
+              <div class="actions">
+                <button data-action="edit-profile" data-profile="${safeName}" class="secondary">Edit profile</button>
+              </div>`;
+            host.appendChild(div);
+          }
         }
 
         document.getElementById('error-card').style.display = 'none';
@@ -866,6 +1257,48 @@ public static class DashboardCommand
       await refresh();
     });
 
+    document.getElementById('add-profile').addEventListener('click', async () => {
+      try {
+        if (!currentConfig) await getConfig();
+        openProfileModal(null);
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
+    });
+
+    document.getElementById('profile-modal-close').addEventListener('click', closeProfileModal);
+    document.getElementById('profile-cancel').addEventListener('click', closeProfileModal);
+    document.getElementById('profile-modal-shell').addEventListener('click', event => {
+      if (event.target.id === 'profile-modal-shell') closeProfileModal();
+    });
+
+    document.getElementById('profile-save').addEventListener('click', async () => {
+      try {
+        const payload = { originalName: editingOriginalName, profile: collectProfileForm() };
+        const result = await saveProfile(payload);
+        closeProfileModal();
+        showToast(result.restartMessage || 'Profile saved. Restart the service to apply changes.', result.snapshot?.Warnings?.length ? 'warn' : 'success');
+        await getConfig();
+        await refresh();
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
+    });
+
+    document.getElementById('profile-delete').addEventListener('click', async () => {
+      if (!editingOriginalName) return;
+      if (!confirm(`Delete profile "${editingOriginalName}"?`)) return;
+      try {
+        const result = await deleteProfile(editingOriginalName);
+        closeProfileModal();
+        showToast(result.restartMessage || `Deleted ${editingOriginalName}. Restart the service to apply changes.`, result.snapshot?.Warnings?.length ? 'warn' : 'success');
+        await getConfig();
+        await refresh();
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
+    });
+
     document.addEventListener('click', async (event) => {
       const summary = event.target.closest('details.history > summary');
       if (summary) {
@@ -886,6 +1319,23 @@ public static class DashboardCommand
 
       const profile = button.getAttribute('data-profile');
       const action = button.getAttribute('data-action');
+      if (action === 'edit-profile') {
+        try {
+          if (!currentConfig) await getConfig();
+          const configuredProfile = (currentConfig?.Profiles || []).find(item => item.Name.toLowerCase() === String(profile).toLowerCase());
+          openProfileModal(configuredProfile || {
+            Name: profile,
+            SourcePath: '',
+            DestinationPath: '',
+            IncludeSubdirectories: true,
+            Reconciliation: { Enabled: true, IntervalMinutes: 15, RunOnStartup: true, UseRobocopy: true, RobocopyOptions: '' }
+          });
+        } catch (error) {
+          showToast(error.message, 'error');
+        }
+        return;
+      }
+
       const path = action === 'pause-profile'
         ? '/api/control/pause'
         : action === 'resume-profile'
@@ -909,6 +1359,7 @@ public static class DashboardCommand
 
     initializeTheme();
     initializeProfileFilterFromUrl();
+    getConfig().catch(error => showToast(error.message, 'error'));
     refresh();
     setInterval(refresh, 5000);
   </script>
