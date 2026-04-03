@@ -4,6 +4,7 @@ using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using System.ServiceProcess;
 using System.Text.Json;
+using System.Threading;
 using Microsoft.Win32;
 using WindowsToastNotifyApi;
 
@@ -44,6 +45,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _refreshItem;
     private readonly System.Windows.Forms.Timer _timer;
     private readonly Control _uiInvoker;
+    private readonly HttpClient _dashboardClient;
     private readonly JsonSerializerOptions _jsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -60,6 +62,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private string? _lastAlertKey;
     private Process? _dashboardProcess;
     private Icon? _currentTrayIcon;
+    private string? _currentIconState;
+    private int _refreshInFlight;
+    private bool _disposed;
 
     public TrayApplicationContext()
     {
@@ -101,7 +106,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _restartElevatedItem = new ToolStripMenuItem("Restart as administrator", null, (_, _) => RestartElevated());
         _settingsItem = new ToolStripMenuItem("Settings", null, (_, _) => ShowSettings());
         _aboutItem = new ToolStripMenuItem("About FolderSync Tray", null, (_, _) => ShowAbout());
-        _refreshItem = new ToolStripMenuItem("Refresh now", null, (_, _) => RefreshState(showErrors: true));
+        _refreshItem = new ToolStripMenuItem("Refresh now", null, (_, _) => BeginRefresh(showErrors: true));
         var exitItem = new ToolStripMenuItem("Exit", null, (_, _) => ExitThread());
 
         _menu.Items.AddRange(
@@ -135,6 +140,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
         };
         _uiInvoker = new Control();
         _ = _uiInvoker.Handle;
+        _dashboardClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(2)
+        };
         _currentTrayIcon = _notifyIcon.Icon;
         _notifyIcon.DoubleClick += async (_, _) => await OpenDashboardAsync();
         Toast.Activated += toastArgs =>
@@ -152,20 +161,22 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             Interval = 5000
         };
-        _timer.Tick += (_, _) => RefreshState(showErrors: false);
+        _timer.Tick += (_, _) => BeginRefresh(showErrors: false);
         _timer.Start();
 
-        RefreshState(showErrors: true);
+        BeginRefresh(showErrors: true);
     }
 
     protected override void ExitThreadCore()
     {
+        _disposed = true;
         _timer.Stop();
         _notifyIcon.Visible = false;
         _currentTrayIcon?.Dispose();
         _notifyIcon.Dispose();
         _menu.Dispose();
         _uiInvoker.Dispose();
+        _dashboardClient.Dispose();
 
         if (_dashboardProcess is { HasExited: false })
             _dashboardProcess.Dispose();
@@ -173,26 +184,70 @@ internal sealed class TrayApplicationContext : ApplicationContext
         base.ExitThreadCore();
     }
 
-    private void RefreshState(bool showErrors)
+    private void BeginRefresh(bool showErrors)
+    {
+        if (_disposed)
+            return;
+
+        if (Interlocked.Exchange(ref _refreshInFlight, 1) != 0)
+            return;
+
+        _ = Task.Run(() => RefreshStateCore(showErrors));
+    }
+
+    private void RefreshStateCore(bool showErrors)
     {
         try
         {
-            ResolveInstallLocation();
-            EnsureToastInitialized();
-            _serviceStatus = TryGetServiceStatus();
-            _healthSnapshot = TryReadJson<RuntimeHealthSnapshot>(GetPath("foldersync-health.json"));
-            _controlSnapshot = TryReadJson<RuntimeControlSnapshot>(GetPath("foldersync-control.json")) ?? new RuntimeControlSnapshot();
-            _dashboardResponsive = IsDashboardResponsive();
-            ApplyControlOverlay();
-            UpdateMenu();
-            ShowAlertIfNeeded();
-            ShowServiceStateToastIfNeeded();
+            var installLocation = ResolveInstallLocation();
+            var serviceStatus = TryGetServiceStatus();
+            var healthSnapshot = !string.IsNullOrWhiteSpace(installLocation.InstallDirectory)
+                ? TryReadJson<RuntimeHealthSnapshot>(Path.Combine(installLocation.InstallDirectory, "foldersync-health.json"))
+                : null;
+            var controlSnapshot = !string.IsNullOrWhiteSpace(installLocation.InstallDirectory)
+                ? TryReadJson<RuntimeControlSnapshot>(Path.Combine(installLocation.InstallDirectory, "foldersync-control.json")) ?? new RuntimeControlSnapshot()
+                : new RuntimeControlSnapshot();
+            var dashboardResponsive = IsDashboardResponsive();
+
+            if (_disposed || _uiInvoker.IsDisposed)
+                return;
+
+            _uiInvoker.BeginInvoke(new MethodInvoker(() =>
+            {
+                if (_disposed || _uiInvoker.IsDisposed)
+                    return;
+
+                EnsureToastInitialized();
+                _installDirectory = installLocation.InstallDirectory;
+                _executablePath = installLocation.ExecutablePath;
+                _serviceStatus = serviceStatus;
+                _healthSnapshot = healthSnapshot;
+                _controlSnapshot = controlSnapshot;
+                _dashboardResponsive = dashboardResponsive;
+                ApplyControlOverlay();
+                UpdateMenu();
+                ShowAlertIfNeeded();
+                ShowServiceStateToastIfNeeded();
+            }));
         }
         catch (Exception ex)
         {
-            UpdateUnavailableState(ex.Message);
-            if (showErrors)
-                ShowBalloon("FolderSync Tray", ex.Message, ToolTipIcon.Warning);
+            if (_disposed || _uiInvoker.IsDisposed)
+                return;
+
+            _uiInvoker.BeginInvoke(new MethodInvoker(() =>
+            {
+                if (_disposed || _uiInvoker.IsDisposed)
+                    return;
+
+                UpdateUnavailableState(ex.Message);
+                if (showErrors)
+                    ShowBalloon("FolderSync Tray", ex.Message, ToolTipIcon.Warning);
+            }));
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _refreshInFlight, 0);
         }
     }
 
@@ -675,11 +730,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         try
         {
-            using var client = new HttpClient
-            {
-                Timeout = TimeSpan.FromSeconds(2)
-            };
-            using var response = await client.GetAsync(DashboardUrl);
+            using var response = await _dashboardClient.GetAsync(DashboardUrl);
             return response.IsSuccessStatusCode;
         }
         catch
@@ -692,11 +743,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         try
         {
-            using var client = new HttpClient
-            {
-                Timeout = TimeSpan.FromSeconds(2)
-            };
-            using var response = client.GetAsync(DashboardUrl).GetAwaiter().GetResult();
+            using var response = _dashboardClient.GetAsync(DashboardUrl).GetAwaiter().GetResult();
             return response.IsSuccessStatusCode;
         }
         catch
@@ -740,7 +787,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         try
         {
             StartDashboardProcess();
-            RefreshState(showErrors: false);
+            BeginRefresh(showErrors: false);
             ShowBalloon("FolderSync Tray", "Dashboard host started.", ToolTipIcon.Info);
         }
         catch (Exception ex)
@@ -751,78 +798,93 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void StartService()
     {
-        try
-        {
-            using var controller = new ServiceController(ServiceName);
-            controller.Start();
-            controller.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(30));
-            RefreshState(showErrors: false);
-            ShowBalloon("FolderSync Tray", "FolderSync service started.", ToolTipIcon.Info);
-        }
-        catch (InvalidOperationException ex) when (ex.InnerException is System.ComponentModel.Win32Exception)
-        {
-            HandleServiceRequiresElevation("start");
-        }
-        catch (System.ComponentModel.Win32Exception)
-        {
-            HandleServiceRequiresElevation("start");
-        }
-        catch (Exception ex)
-        {
-            ShowBalloon("FolderSync Tray", $"Unable to start service: {ex.Message}", ToolTipIcon.Error);
-        }
+        RunServiceAction(
+            "start",
+            "FolderSync service started.",
+            () =>
+            {
+                using var controller = new ServiceController(ServiceName);
+                controller.Start();
+                controller.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(30));
+            });
     }
 
     private void StopService()
     {
-        try
-        {
-            using var controller = new ServiceController(ServiceName);
-            controller.Stop();
-            controller.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(30));
-            RefreshState(showErrors: false);
-            ShowBalloon("FolderSync Tray", "FolderSync service stopped.", ToolTipIcon.Info);
-        }
-        catch (InvalidOperationException ex) when (ex.InnerException is System.ComponentModel.Win32Exception)
-        {
-            HandleServiceRequiresElevation("stop");
-        }
-        catch (System.ComponentModel.Win32Exception)
-        {
-            HandleServiceRequiresElevation("stop");
-        }
-        catch (Exception ex)
-        {
-            ShowBalloon("FolderSync Tray", $"Unable to stop service: {ex.Message}", ToolTipIcon.Error);
-        }
+        RunServiceAction(
+            "stop",
+            "FolderSync service stopped.",
+            () =>
+            {
+                using var controller = new ServiceController(ServiceName);
+                controller.Stop();
+                controller.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(30));
+            });
     }
 
     private void RestartService()
     {
+        RunServiceAction(
+            "restart",
+            "FolderSync service restarted.",
+            () =>
+            {
+                using var controller = new ServiceController(ServiceName);
+                if (controller.Status != ServiceControllerStatus.Stopped)
+                {
+                    controller.Stop();
+                    controller.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(30));
+                }
+                controller.Start();
+                controller.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(30));
+            });
+    }
+
+    private void RunServiceAction(string action, string successMessage, Action operation)
+    {
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                operation();
+                InvokeOnUiThread(() =>
+                {
+                    BeginRefresh(showErrors: false);
+                    ShowBalloon("FolderSync Tray", successMessage, ToolTipIcon.Info);
+                });
+            }
+            catch (InvalidOperationException ex) when (ex.InnerException is System.ComponentModel.Win32Exception)
+            {
+                InvokeOnUiThread(() => HandleServiceRequiresElevation(action));
+            }
+            catch (System.ComponentModel.Win32Exception)
+            {
+                InvokeOnUiThread(() => HandleServiceRequiresElevation(action));
+            }
+            catch (Exception ex)
+            {
+                InvokeOnUiThread(() => ShowBalloon("FolderSync Tray", $"Unable to {action} service: {ex.Message}", ToolTipIcon.Error));
+            }
+        });
+    }
+
+    private void InvokeOnUiThread(Action action)
+    {
+        if (_disposed || _uiInvoker.IsDisposed)
+            return;
+
         try
         {
-            using var controller = new ServiceController(ServiceName);
-            if (controller.Status != ServiceControllerStatus.Stopped)
+            _uiInvoker.BeginInvoke(new MethodInvoker(() =>
             {
-                controller.Stop();
-                controller.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(30));
-            }
-            controller.Start();
-            controller.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(30));
-            RefreshState(showErrors: false);
-            ShowBalloon("FolderSync Tray", "FolderSync service restarted.", ToolTipIcon.Info);
+                if (_disposed || _uiInvoker.IsDisposed)
+                    return;
+
+                action();
+            }));
         }
-        catch (InvalidOperationException ex) when (ex.InnerException is System.ComponentModel.Win32Exception)
+        catch
         {
-            HandleServiceRequiresElevation("restart");
-        }
-        catch (System.ComponentModel.Win32Exception)
-        {
-            HandleServiceRequiresElevation("restart");
-        }
-        catch (Exception ex)
-        {
-            ShowBalloon("FolderSync Tray", $"Unable to restart service: {ex.Message}", ToolTipIcon.Error);
         }
     }
 
@@ -892,7 +954,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             });
 
             WriteRuntimeActivity("reconcile", profileName, "Requested from tray app");
-            RefreshState(showErrors: false);
+            BeginRefresh(showErrors: false);
 
             ShowBalloon("FolderSync Tray", string.IsNullOrWhiteSpace(profileName) ? "Started reconciliation for all profiles." : $"Started reconciliation for {profileName}.", ToolTipIcon.Info);
         }
@@ -912,7 +974,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             update(snapshot);
             PersistJson(path, snapshot);
             WriteRuntimeActivity(activityAction, profileName, activityDetails);
-            RefreshState(showErrors: false);
+            BeginRefresh(showErrors: false);
             ShowBalloon("FolderSync Tray", successMessage, ToolTipIcon.Info);
         }
         catch (UnauthorizedAccessException)
@@ -995,7 +1057,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
     }
 
-    private void ResolveInstallLocation()
+    private (string? InstallDirectory, string? ExecutablePath) ResolveInstallLocation()
     {
         var (exitCode, output, _) = RunSc($"qc \"{ServiceName}\"");
         if (exitCode == 0)
@@ -1003,24 +1065,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
             var binPath = ParseBinPath(output);
             var executablePath = NormalizeExecutablePath(binPath);
             if (!string.IsNullOrWhiteSpace(executablePath) && File.Exists(executablePath))
-            {
-                _executablePath = executablePath;
-                _installDirectory = Path.GetDirectoryName(executablePath);
-                return;
-            }
+                return (Path.GetDirectoryName(executablePath), executablePath);
         }
 
         var fallbackDir = @"C:\FolderSync";
         var fallbackExe = Path.Combine(fallbackDir, "foldersync.exe");
         if (File.Exists(fallbackExe))
-        {
-            _executablePath = fallbackExe;
-            _installDirectory = fallbackDir;
-            return;
-        }
+            return (fallbackDir, fallbackExe);
 
-        _installDirectory = null;
-        _executablePath = null;
+        return (null, null);
     }
 
     private string GetPath(string fileName)
@@ -1314,9 +1367,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void UpdateTrayIcon(string state)
     {
+        if (string.Equals(_currentIconState, state, StringComparison.Ordinal))
+            return;
+
         var icon = BuildStatusIcon(state);
         var oldIcon = _currentTrayIcon;
         _currentTrayIcon = icon;
+        _currentIconState = state;
         _notifyIcon.Icon = icon;
         oldIcon?.Dispose();
     }
