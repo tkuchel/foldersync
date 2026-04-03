@@ -30,6 +30,12 @@ foldersync resume --profile example-workspace
 foldersync dashboard
 ```
 
+Tray companion:
+
+```powershell
+dotnet run --project src\FolderSync.Tray\FolderSync.Tray.csproj
+```
+
 `status --verbose` is the best human-oriented operator view.
 
 `status --json` emits the full structured service/runtime report, including install/config/log paths, runtime counters, reconciliation metadata, and recent activity.
@@ -48,6 +54,15 @@ The dashboard now supports:
 - pause and resume actions per profile
 - per-profile recent activity history
 - one-click profile reconciliation from the installed service
+
+`FolderSync.Tray` is a lightweight Windows tray companion for the installed service. The first version provides:
+
+- live tray status from the persisted health snapshot
+- alert balloons for service/profile warnings
+- quick pause, resume, and reconcile actions
+- per-profile quick actions
+- one-click dashboard launch
+- one-click open install folder
 
 For a deployed service under `C:\FolderSync`, these commands may need an elevated PowerShell window so they can update the control file in the install directory.
 
