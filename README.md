@@ -181,6 +181,7 @@ The current next-frontier work is:
 - richer dashboard interactions, including profile filtering and operator actions
 - notification integrations and templates for tools like Slack or Teams
 - broader operator UX improvements built on the existing health and status APIs
+- a phased bidirectional sync design that preserves the safety of the existing one-way engine
 
 Current progress on `develop`:
 
@@ -188,6 +189,11 @@ Current progress on `develop`:
 - dashboard filtering and pause/resume actions are implemented
 - Slack/Teams notification payload templates are implemented
 - dashboard profile activity history and one-click reconcile actions are implemented
+- dashboard profile create/edit/delete is implemented
+
+Design notes:
+
+- [Bidirectional sync design](/T:/repos/foldersync/docs/BidirectionalSyncDesign.md)
 
 ## Local Deployment
 
