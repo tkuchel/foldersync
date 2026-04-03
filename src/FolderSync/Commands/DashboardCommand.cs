@@ -839,6 +839,7 @@ public static class DashboardCommand
   <script>
     const themeKey = 'foldersync-dashboard-theme';
     const expandedKey = 'foldersync-dashboard-expanded';
+    const defaultRobocopyOptions = '/E /FFT /Z /R:2 /W:5 /XO /NFL /NDL /NP /XJ';
     const expandedProfiles = new Set(JSON.parse(localStorage.getItem(expandedKey) || '[]'));
     const defaultIconHref = '{{GetDashboardIconDataUrl()}}';
     let currentData = null;
@@ -1094,6 +1095,19 @@ public static class DashboardCommand
         Extensions: splitLines(document.getElementById('profile-exclusion-extensions').value)
       };
 
+      const reconciliationEnabled = document.getElementById('profile-reconcile-enabled').checked;
+      const reconciliationInterval = getNullableInt('profile-reconcile-interval') ?? 15;
+      const runReconciliationOnStartup = document.getElementById('profile-reconcile-startup').checked;
+      const useRobocopy = document.getElementById('profile-use-robocopy').checked;
+      const robocopyOptions = document.getElementById('profile-robocopy-options').value.trim();
+      const reconciliation = {
+        Enabled: reconciliationEnabled,
+        IntervalMinutes: reconciliationInterval,
+        RunOnStartup: runReconciliationOnStartup,
+        UseRobocopy: useRobocopy,
+        RobocopyOptions: useRobocopy ? (robocopyOptions || defaultRobocopyOptions) : robocopyOptions
+      };
+
       return {
         Name: document.getElementById('profile-name').value.trim(),
         SourcePath: document.getElementById('profile-source').value.trim(),
@@ -1103,13 +1117,7 @@ public static class DashboardCommand
         DeleteMode: getNullableText('profile-delete-mode'),
         DeleteArchivePath: getNullableText('profile-delete-archive'),
         DryRun: document.getElementById('profile-dry-run').checked,
-        Reconciliation: {
-          Enabled: document.getElementById('profile-reconcile-enabled').checked,
-          IntervalMinutes: getNullableInt('profile-reconcile-interval') ?? 15,
-          RunOnStartup: document.getElementById('profile-reconcile-startup').checked,
-          UseRobocopy: document.getElementById('profile-use-robocopy').checked,
-          RobocopyOptions: document.getElementById('profile-robocopy-options').value.trim()
-        },
+        Reconciliation: reconciliation,
         Exclusions: (exclusions.DirectoryNames.length || exclusions.FilePatterns.length || exclusions.Extensions.length)
           ? exclusions
           : null

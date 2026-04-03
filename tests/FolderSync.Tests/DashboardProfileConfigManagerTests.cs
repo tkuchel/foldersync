@@ -177,6 +177,53 @@ public sealed class DashboardProfileConfigManagerTests : IDisposable
         Assert.Contains(result.Errors, error => error.Contains("No sync profiles configured", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public void SaveProfile_Normalizes_Blank_Robocopy_Options_To_Default()
+    {
+        var configPath = Path.Combine(_tempDir.FullName, "appsettings.json");
+        var sourceA = Directory.CreateDirectory(Path.Combine(_tempDir.FullName, "src-a")).FullName;
+        var destA = Directory.CreateDirectory(Path.Combine(_tempDir.FullName, "dst-a")).FullName;
+        File.WriteAllText(configPath, """
+        {
+          "FolderSync": {
+            "Profiles": [
+              {
+                "Name": "alpha",
+                "SourcePath": "__SRC_A__",
+                "DestinationPath": "__DST_A__"
+              }
+            ]
+          }
+        }
+        """.Replace("__SRC_A__", sourceA.Replace("\\", "\\\\"))
+           .Replace("__DST_A__", destA.Replace("\\", "\\\\")));
+
+        var result = DashboardProfileConfigManager.SaveProfile(configPath, new DashboardProfileEditRequest
+        {
+            OriginalName = "alpha",
+            Profile = new SyncProfileConfig
+            {
+                Name = "alpha",
+                SourcePath = sourceA,
+                DestinationPath = destA,
+                Reconciliation = new ReconciliationOptions
+                {
+                    Enabled = true,
+                    IntervalMinutes = 15,
+                    RunOnStartup = true,
+                    UseRobocopy = true,
+                    RobocopyOptions = ""
+                }
+            }
+        });
+
+        Assert.True(result.Success);
+        var saved = result.Snapshot.Profiles.Single();
+        Assert.NotNull(saved.Reconciliation);
+        Assert.Equal(new ReconciliationOptions().RobocopyOptions, saved.Reconciliation!.RobocopyOptions);
+        Assert.DoesNotContain(result.Snapshot.Warnings, warning => warning.Contains("without explicit RobocopyOptions", StringComparison.OrdinalIgnoreCase));
+    }
+
     public void Dispose()
     {
         _tempDir.Delete(recursive: true);

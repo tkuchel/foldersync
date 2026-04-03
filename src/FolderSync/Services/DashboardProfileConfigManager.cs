@@ -277,8 +277,12 @@ internal static class DashboardProfileConfigManager
             }
         }
 
-        if (profile.Reconciliation is not null && string.IsNullOrWhiteSpace(profile.Reconciliation.RobocopyOptions))
-            profile.Reconciliation.RobocopyOptions = string.Empty;
+        if (profile.Reconciliation is not null &&
+            profile.Reconciliation.UseRobocopy &&
+            string.IsNullOrWhiteSpace(profile.Reconciliation.RobocopyOptions))
+        {
+            profile.Reconciliation.RobocopyOptions = new ReconciliationOptions().RobocopyOptions;
+        }
     }
 
     private static List<string> NormalizeList(IEnumerable<string> values)
