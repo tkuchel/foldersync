@@ -331,14 +331,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         if (current == ServiceControllerStatus.Stopped)
         {
-            var canManageService = IsProcessElevated();
             ShowToast(
                 "FolderSync service stopped",
-                "The Windows service is not running. You can restart it or inspect the dashboard.",
-                primaryAction: canManageService ? "start-service" : "restart-elevated",
-                primaryLabel: canManageService ? "Start service" : "Restart as admin",
-                secondaryAction: "open-dashboard",
-                secondaryLabel: "Open dashboard",
+                "The Windows service is not running. Open the dashboard or relaunch the tray as administrator to manage the service.",
+                primaryAction: "open-dashboard",
+                primaryLabel: "Open dashboard",
+                secondaryAction: "restart-elevated",
+                secondaryLabel: "Restart as admin",
                 preset: Toast.Warning);
             return;
         }
@@ -359,7 +358,6 @@ internal sealed class TrayApplicationContext : ApplicationContext
         if (string.IsNullOrWhiteSpace(profile.AlertMessage))
             return;
 
-        var canManageService = IsProcessElevated();
         ShowToast(
             $"FolderSync alert: {profile.Name}",
             profile.AlertMessage,
@@ -367,14 +365,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
             primaryLabel: "Open dashboard",
             secondaryAction: _serviceStatus == ServiceControllerStatus.Running
                 ? "reconcile"
-                : canManageService
-                    ? "start-service"
-                    : "restart-elevated",
+                : "restart-elevated",
             secondaryLabel: _serviceStatus == ServiceControllerStatus.Running
                 ? "Reconcile now"
-                : canManageService
-                    ? "Start service"
-                    : "Restart as admin",
+                : "Restart as admin",
             payload: new Dictionary<string, string> { ["profile"] = profile.Name },
             preset: Toast.Warning);
     }
