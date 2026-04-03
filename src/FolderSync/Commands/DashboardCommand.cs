@@ -359,34 +359,81 @@ public static class DashboardCommand
       --accent: #0d8b7d;
       --warn: #b26b00;
       --border: #d8d1c7;
+      --subtle: #f6f1e8;
+      --shadow: 0 8px 24px rgba(29,42,53,.06);
+      --success-bg: rgba(13,139,125,.12);
+      --warn-bg: rgba(178,107,0,.14);
+      --danger: #9b2c2c;
+      --danger-bg: rgba(155,44,44,.12);
+      --button-secondary-bg: #dde9e7;
+      --button-secondary-ink: #1d2a35;
     }
-    body { margin: 0; font-family: "Segoe UI", sans-serif; background: linear-gradient(180deg, #f8f3eb, #efe7db); color: var(--ink); }
-    .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 20px 48px; }
+    [data-theme="dark"] {
+      --bg: #0f151b;
+      --panel: #172129;
+      --ink: #edf3f7;
+      --muted: #9db0be;
+      --accent: #3bc0ad;
+      --warn: #f1b24a;
+      --border: #2a3a47;
+      --subtle: #111920;
+      --shadow: 0 18px 40px rgba(0,0,0,.28);
+      --success-bg: rgba(59,192,173,.16);
+      --warn-bg: rgba(241,178,74,.15);
+      --danger: #ff8f8f;
+      --danger-bg: rgba(255,143,143,.14);
+      --button-secondary-bg: #23313b;
+      --button-secondary-ink: #edf3f7;
+    }
+    body { margin: 0; font-family: "Segoe UI", sans-serif; background: linear-gradient(180deg, color-mix(in srgb, var(--bg) 84%, white), var(--bg)); color: var(--ink); transition: background .2s ease, color .2s ease; }
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 20px 48px; }
     .hero { display: flex; justify-content: space-between; gap: 16px; align-items: end; margin-bottom: 20px; }
     .hero h1 { margin: 0; font-size: 2rem; }
     .hero p { margin: 6px 0 0; color: var(--muted); }
+    .hero-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
     .toolbar { display:flex; flex-wrap:wrap; gap:12px; align-items:end; margin: 20px 0 10px; }
     .toolbar label { display:grid; gap:6px; font-size:.85rem; color: var(--muted); }
-    .toolbar input { min-width: 220px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: #fff; }
-    .toolbar button, .actions button, .toggle { border: 0; border-radius: 999px; padding: 10px 14px; background: var(--accent); color: white; font-weight: 600; cursor: pointer; }
-    .toolbar button.secondary, .actions button.secondary { background: #dde9e7; color: var(--ink); }
+    .toolbar input { min-width: 220px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); color: var(--ink); }
+    .toolbar button, .actions button, .toggle, .theme-toggle { border: 0; border-radius: 999px; padding: 10px 14px; background: var(--accent); color: white; font-weight: 600; cursor: pointer; transition: transform .15s ease, opacity .15s ease; }
+    .toolbar button:hover, .actions button:hover, .toggle:hover, .theme-toggle:hover { transform: translateY(-1px); }
+    .toolbar button.secondary, .actions button.secondary, .toggle.secondary, .theme-toggle.secondary { background: var(--button-secondary-bg); color: var(--button-secondary-ink); }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
-    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 18px; box-shadow: 0 8px 24px rgba(29,42,53,.06); }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 18px; box-shadow: var(--shadow); }
     .label { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 6px; }
     .value { font-size: 1.4rem; font-weight: 700; }
     .profiles { margin-top: 16px; display: grid; gap: 12px; }
     .profile { background: var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 18px; }
-    .pill { display: inline-block; padding: 4px 10px; border-radius: 999px; background: rgba(13,139,125,.12); color: var(--accent); font-size: .8rem; font-weight: 600; }
-    .pill.warn { background: rgba(178,107,0,.14); color: var(--warn); }
+    .profile-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+    .profile-title { display:grid; gap:4px; }
+    .profile-subtitle { font-size:.9rem; color: var(--muted); }
+    .pill { display: inline-block; padding: 4px 10px; border-radius: 999px; background: var(--success-bg); color: var(--accent); font-size: .8rem; font-weight: 600; }
+    .pill.warn { background: var(--warn-bg); color: var(--warn); }
+    .pill.error { background: var(--danger-bg); color: var(--danger); }
+    .stats { margin-top: 14px; display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+    .stat { padding: 10px 12px; border-radius: 14px; background: var(--subtle); border: 1px solid var(--border); }
+    .stat-label { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+    .stat-value { margin-top: 4px; font-size: 1rem; font-weight: 700; }
     .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top: 14px; }
-    .history { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 14px; display:grid; gap:10px; }
-    .history-item { padding: 10px 12px; border-radius: 12px; background: #f6f1e8; }
+    .history { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 14px; display:block; }
+    .history > summary { list-style: none; cursor: pointer; display:flex; align-items:center; }
+    .history > summary::-webkit-details-marker { display: none; }
+    .history > summary::before { content: '▸'; margin-right: 8px; color: var(--muted); transition: transform .15s ease; }
+    .history[open] > summary::before { transform: rotate(90deg); }
+    .history-body { display:grid; gap:10px; margin-top: 12px; }
+    .history-item { padding: 10px 12px; border-radius: 12px; background: var(--subtle); border: 1px solid var(--border); }
     .history-item strong { display:block; margin-bottom:4px; }
     .history-meta { color: var(--muted); font-size: .85rem; }
-    dl { margin: 12px 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; }
-    dt { color: var(--muted); }
-    .error { color: #9b2c2c; }
-    pre { white-space: pre-wrap; background: #f6f1e8; border-radius: 12px; padding: 12px; font-size: .85rem; }
+    .toast { display:none; margin-top: 16px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--border); background: var(--subtle); }
+    .toast.error { border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); color: var(--danger); background: var(--danger-bg); }
+    .toast.success { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); color: var(--accent); background: var(--success-bg); }
+    .error { color: var(--danger); }
+    pre { white-space: pre-wrap; background: var(--subtle); border: 1px solid var(--border); border-radius: 12px; padding: 12px; font-size: .85rem; }
+    @media (max-width: 720px) {
+      .hero { align-items: start; }
+      .hero-actions { justify-content:flex-start; }
+      .toolbar { flex-direction: column; align-items: stretch; }
+      .toolbar input { min-width: 0; width: 100%; }
+    }
   </style>
 </head>
 <body>
@@ -396,7 +443,10 @@ public static class DashboardCommand
         <h1>{{serviceName}} Dashboard</h1>
         <p>Live local status, health, and profile activity. Refreshes every 5 seconds.</p>
       </div>
-      <div id="updated" class="pill">Loading…</div>
+      <div class="hero-actions">
+        <button id="theme-toggle" class="theme-toggle secondary" type="button">Dark mode</button>
+        <div id="updated" class="pill">Loading…</div>
+      </div>
     </div>
 
     <div class="grid">
@@ -428,6 +478,7 @@ public static class DashboardCommand
     </div>
 
     <div class="profiles" id="profiles"></div>
+    <div class="toast" id="action-toast"></div>
     <div class="card" id="error-card" style="display:none; margin-top: 16px;">
       <div class="label">Error</div>
       <div class="error" id="error-text"></div>
@@ -435,7 +486,52 @@ public static class DashboardCommand
   </div>
 
   <script>
+    const themeKey = 'foldersync-dashboard-theme';
+    const expandedKey = 'foldersync-dashboard-expanded';
+    const expandedProfiles = new Set(JSON.parse(localStorage.getItem(expandedKey) || '[]'));
     let currentData = null;
+    let lastToastTimeout = null;
+
+    function saveExpandedProfiles() {
+      localStorage.setItem(expandedKey, JSON.stringify([...expandedProfiles]));
+    }
+
+    function setTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem(themeKey, theme);
+      document.getElementById('theme-toggle').textContent = theme === 'dark' ? 'Light mode' : 'Dark mode';
+    }
+
+    function initializeTheme() {
+      const savedTheme = localStorage.getItem(themeKey);
+      if (savedTheme === 'dark' || savedTheme === 'light') {
+        setTheme(savedTheme);
+        return;
+      }
+
+      setTheme(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    }
+
+    function showToast(message, kind = 'success') {
+      const toast = document.getElementById('action-toast');
+      toast.className = `toast ${kind}`;
+      toast.textContent = message;
+      toast.style.display = 'block';
+      clearTimeout(lastToastTimeout);
+      lastToastTimeout = setTimeout(() => {
+        toast.style.display = 'none';
+      }, 3000);
+    }
+
+    function rememberExpandedPanels() {
+      document.querySelectorAll('details.history[data-profile]').forEach(detail => {
+        const name = detail.getAttribute('data-profile');
+        if (!name) return;
+        if (detail.open) expandedProfiles.add(name);
+        else expandedProfiles.delete(name);
+      });
+      saveExpandedProfiles();
+    }
 
     async function postControl(path, profile) {
       const reason = document.getElementById('pause-reason').value;
@@ -454,8 +550,15 @@ public static class DashboardCommand
       return profile.Name.toLowerCase().includes(filterText.toLowerCase());
     }
 
+    function profileStatusClass(profile) {
+      if (profile.AlertMessage) return 'pill warn';
+      if (profile.FailedCount > 0 && !profile.LastSuccessfulSyncUtc) return 'pill error';
+      return 'pill';
+    }
+
     async function refresh() {
       try {
+        rememberExpandedPanels();
         const response = await fetch('/api/status', { cache: 'no-store' });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Failed to load status');
@@ -472,37 +575,43 @@ public static class DashboardCommand
         for (const profile of (data.Runtime?.Profiles || []).filter(item => matchesFilter(item, filterText))) {
           const div = document.createElement('div');
           div.className = 'profile';
-          const pillClass = profile.AlertMessage ? 'pill warn' : 'pill';
+          const pillClass = profileStatusClass(profile);
           const profileStatus = profile.IsPaused ? `Paused${profile.PauseReason ? `: ${profile.PauseReason}` : ''}` : (profile.AlertMessage ? profile.AlertLevel : profile.State);
+          const historyOpen = expandedProfiles.has(profile.Name) ? 'open' : '';
           div.innerHTML = `
-            <div style="display:flex; justify-content:space-between; gap:12px; align-items:center;">
-              <strong>${profile.Name}</strong>
+            <div class="profile-head">
+              <div class="profile-title">
+                <strong>${profile.Name}</strong>
+                <div class="profile-subtitle">${profile.Reconciliation?.LastTrigger ? `Last trigger: ${profile.Reconciliation.LastTrigger}` : 'Watching for changes'}</div>
+              </div>
               <span class="${pillClass}">${profileStatus}</span>
             </div>
-            <dl>
-              <dt>Processed</dt><dd>${profile.ProcessedCount}</dd>
-              <dt>Failed</dt><dd>${profile.FailedCount}</dd>
-              <dt>Overflows</dt><dd>${profile.WatcherOverflowCount}</dd>
-              <dt>Last Sync</dt><dd>${profile.LastSuccessfulSyncUtc ? new Date(profile.LastSuccessfulSyncUtc).toLocaleString() : 'n/a'}</dd>
-              <dt>Last Failure</dt><dd>${profile.LastFailure || 'n/a'}</dd>
-              <dt>Reconcile</dt><dd>${profile.Reconciliation?.LastExitDescription || 'n/a'}</dd>
-            </dl>
+            <div class="stats">
+              <div class="stat"><div class="stat-label">Processed</div><div class="stat-value">${profile.ProcessedCount}</div></div>
+              <div class="stat"><div class="stat-label">Failed</div><div class="stat-value">${profile.FailedCount}</div></div>
+              <div class="stat"><div class="stat-label">Overflows</div><div class="stat-value">${profile.WatcherOverflowCount}</div></div>
+              <div class="stat"><div class="stat-label">Last Sync</div><div class="stat-value">${profile.LastSuccessfulSyncUtc ? new Date(profile.LastSuccessfulSyncUtc).toLocaleString() : 'n/a'}</div></div>
+              <div class="stat"><div class="stat-label">Last Failure</div><div class="stat-value">${profile.LastFailure || 'n/a'}</div></div>
+              <div class="stat"><div class="stat-label">Reconcile</div><div class="stat-value">${profile.Reconciliation?.LastExitDescription || 'n/a'}</div></div>
+            </div>
             <div class="actions">
               <button data-action="pause-profile" data-profile="${profile.Name}">Pause profile</button>
               <button data-action="resume-profile" data-profile="${profile.Name}" class="secondary">Resume profile</button>
               <button data-action="reconcile-profile" data-profile="${profile.Name}" class="secondary">Reconcile now</button>
             </div>
-            <details class="history">
-              <summary><button type="button" class="toggle secondary">Recent activity</button></summary>
-              ${(profile.RecentActivities || []).length === 0
-                ? '<div class="history-item"><strong>No recent activity</strong><div class="history-meta">This profile has not written recent history yet.</div></div>'
-                : (profile.RecentActivities || []).map(item => `
+            <details class="history" data-profile="${profile.Name}" ${historyOpen}>
+              <summary><span class="toggle secondary">Recent activity</span></summary>
+              <div class="history-body">
+                ${(profile.RecentActivities || []).length === 0
+                  ? '<div class="history-item"><strong>No recent activity</strong><div class="history-meta">This profile has not written recent history yet.</div></div>'
+                  : (profile.RecentActivities || []).map(item => `
                     <div class="history-item">
                       <strong>${item.Summary}</strong>
                       <div class="history-meta">${new Date(item.TimestampUtc).toLocaleString()}${item.RelativePath ? ` • ${item.RelativePath}` : ''}</div>
                       ${item.Details ? `<div>${item.Details}</div>` : ''}
                     </div>
-                  `).join('')}
+                    `).join('')}
+              </div>
             </details>
             ${profile.AlertMessage ? `<pre>${profile.AlertMessage}</pre>` : ''}
           `;
@@ -517,24 +626,41 @@ public static class DashboardCommand
     }
 
     document.getElementById('profile-filter').addEventListener('input', () => {
-      if (currentData) {
-        const host = document.getElementById('profiles');
-        host.innerHTML = '';
-      }
       refresh();
+    });
+
+    document.getElementById('theme-toggle').addEventListener('click', () => {
+      const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+      setTheme(currentTheme === 'dark' ? 'light' : 'dark');
     });
 
     document.getElementById('pause-all').addEventListener('click', async () => {
       await postControl('/api/control/pause');
+      showToast('Pause request sent.');
       await refresh();
     });
 
     document.getElementById('resume-all').addEventListener('click', async () => {
       await postControl('/api/control/resume');
+      showToast('Resume request sent.');
       await refresh();
     });
 
     document.addEventListener('click', async (event) => {
+      const summary = event.target.closest('details.history > summary');
+      if (summary) {
+        const details = summary.parentElement;
+        const profile = details?.getAttribute('data-profile');
+        if (profile) {
+          setTimeout(() => {
+            if (details.open) expandedProfiles.add(profile);
+            else expandedProfiles.delete(profile);
+            saveExpandedProfiles();
+          }, 0);
+        }
+        return;
+      }
+
       const button = event.target.closest('button[data-action]');
       if (!button) return;
 
@@ -547,13 +673,21 @@ public static class DashboardCommand
           : '/api/control/reconcile';
       try {
         await postControl(path, profile);
+        const actionLabel = action === 'pause-profile'
+          ? `Paused ${profile}`
+          : action === 'resume-profile'
+            ? `Resumed ${profile}`
+            : `Started reconciliation for ${profile}`;
+        showToast(actionLabel);
         await refresh();
       } catch (error) {
+        showToast(error.message, 'error');
         document.getElementById('error-card').style.display = 'block';
         document.getElementById('error-text').textContent = error.message;
       }
     });
 
+    initializeTheme();
     refresh();
     setInterval(refresh, 5000);
   </script>
