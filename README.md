@@ -69,7 +69,13 @@ The dashboard now supports:
 
 For a deployed service under `C:\FolderSync`, these commands may need an elevated PowerShell window so they can update the control file in the install directory.
 
-The tray app currently works best as a published executable. If you run it via `dotnet run`, the `Start with Windows` option will point at the current process path rather than a separately installed tray binary.
+The tray app works best as a published executable. The local deploy script now publishes it to:
+
+```text
+C:\FolderSync\Tray\foldersync-tray.exe
+```
+
+If you run it via `dotnet run`, the `Start with Windows` option will point at the current process path rather than a separately installed tray binary.
 
 ## Configuration
 
@@ -189,6 +195,7 @@ This script:
 - runs tests by default
 - validates the live `C:\FolderSync\appsettings.json`
 - publishes fresh binaries from the repo
+- publishes the tray companion to `C:\FolderSync\Tray\`
 - preserves the live `appsettings.json`
 - leaves the `logs` directory untouched
 - stops and restarts the `FolderSync` service when needed
@@ -199,4 +206,5 @@ Useful options:
 powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1 -WhatIf
 powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1 -SkipTests
 powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1 -NoRestart
+powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1 -SkipTray
 ```

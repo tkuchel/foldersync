@@ -4,7 +4,8 @@ param(
     [string]$ServiceName = "FolderSync",
     [string]$Configuration = "Release",
     [switch]$SkipTests,
-    [switch]$NoRestart
+    [switch]$NoRestart,
+    [switch]$SkipTray
 )
 
 Set-StrictMode -Version Latest
@@ -48,10 +49,16 @@ function Invoke-DotNet {
 function Invoke-RobocopyCopy {
     param(
         [Parameter(Mandatory = $true)][string]$Source,
-        [Parameter(Mandatory = $true)][string]$Destination
+        [Parameter(Mandatory = $true)][string]$Destination,
+        [switch]$PreserveLiveConfig
     )
 
-    & robocopy $Source $Destination /E /R:2 /W:2 /NFL /NDL /NP /XF appsettings.json /XD logs
+    $arguments = @($Source, $Destination, "/E", "/R:2", "/W:2", "/NFL", "/NDL", "/NP")
+    if ($PreserveLiveConfig) {
+        $arguments += @("/XF", "appsettings.json", "/XD", "logs")
+    }
+
+    & robocopy @arguments
     if ($LASTEXITCODE -ge 8) {
         throw "robocopy failed with exit code $LASTEXITCODE."
     }
@@ -87,15 +94,22 @@ else {
 }
 $solutionPath = Join-Path $repoRoot "FolderSync.slnx"
 $projectPath = Join-Path $repoRoot "src\FolderSync\FolderSync.csproj"
+$trayProjectPath = Join-Path $repoRoot "src\FolderSync.Tray\FolderSync.Tray.csproj"
 $targetDir = Assert-SafeTargetDirectory -Path $TargetDir
+$trayTargetDir = Join-Path $targetDir "Tray"
 $tempRoot = [System.IO.Path]::GetTempPath()
 $publishDir = Join-Path $tempRoot ("foldersync-publish-" + [guid]::NewGuid().ToString("N"))
+$trayPublishDir = Join-Path $tempRoot ("foldersync-tray-publish-" + [guid]::NewGuid().ToString("N"))
 $wasRunning = $false
 $isAdministrator = Test-IsAdministrator
 
 try {
     if (-not (Test-Path $projectPath)) {
         throw "Project file not found: $projectPath"
+    }
+
+    if (-not $SkipTray -and -not (Test-Path $trayProjectPath)) {
+        throw "Tray project file not found: $trayProjectPath"
     }
 
     if (-not (Test-Path $targetDir)) {
@@ -121,6 +135,12 @@ try {
     New-Item -ItemType Directory -Path $publishDir | Out-Null
     Invoke-DotNet -Arguments @("publish", $projectPath, "-c", $Configuration, "-o", $publishDir) -WorkingDirectory $repoRoot
 
+    if (-not $SkipTray) {
+        Write-Host "Publishing FolderSync.Tray ($Configuration)..."
+        New-Item -ItemType Directory -Path $trayPublishDir | Out-Null
+        Invoke-DotNet -Arguments @("publish", $trayProjectPath, "-c", $Configuration, "-o", $trayPublishDir) -WorkingDirectory $repoRoot
+    }
+
     $service = Get-Service -Name $ServiceName -ErrorAction Stop
     $wasRunning = $service.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Running
 
@@ -141,7 +161,18 @@ try {
 
     if ($PSCmdlet.ShouldProcess($targetDir, "Copy published output")) {
         Write-Host "Updating files in $targetDir..."
-        Invoke-RobocopyCopy -Source $publishDir -Destination $targetDir
+        Invoke-RobocopyCopy -Source $publishDir -Destination $targetDir -PreserveLiveConfig
+    }
+
+    if (-not $SkipTray) {
+        if ($PSCmdlet.ShouldProcess($trayTargetDir, "Copy tray companion output")) {
+            if (-not (Test-Path $trayTargetDir)) {
+                New-Item -ItemType Directory -Path $trayTargetDir | Out-Null
+            }
+
+            Write-Host "Updating tray companion in $trayTargetDir..."
+            Invoke-RobocopyCopy -Source $trayPublishDir -Destination $trayTargetDir
+        }
     }
 
     if (-not $NoRestart -and $wasRunning -and $PSCmdlet.ShouldProcess($ServiceName, "Start Windows service")) {
@@ -156,9 +187,17 @@ try {
 
     Write-Host "Deployment completed successfully."
     Write-Host "Live config preserved at $targetConfigPath"
+    if (-not $SkipTray) {
+        Write-Host "Tray companion published to $trayTargetDir"
+        Write-Host "Launch it with $([System.IO.Path]::Combine($trayTargetDir, 'foldersync-tray.exe'))"
+    }
 }
 finally {
     if (Test-Path $publishDir) {
         Remove-Item -LiteralPath $publishDir -Recurse -Force
+    }
+
+    if (Test-Path $trayPublishDir) {
+        Remove-Item -LiteralPath $trayPublishDir -Recurse -Force
     }
 }
