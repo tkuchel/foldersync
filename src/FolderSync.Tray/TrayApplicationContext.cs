@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
+using System.ServiceProcess;
 using System.Text.Json;
 using Microsoft.Win32;
 
@@ -17,6 +18,14 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly NotifyIcon _notifyIcon;
     private readonly ContextMenuStrip _menu;
     private readonly ToolStripMenuItem _statusItem;
+    private readonly ToolStripMenuItem _serviceItem;
+    private readonly ToolStripMenuItem _serviceStateItem;
+    private readonly ToolStripMenuItem _startServiceItem;
+    private readonly ToolStripMenuItem _stopServiceItem;
+    private readonly ToolStripMenuItem _restartServiceItem;
+    private readonly ToolStripMenuItem _dashboardItem;
+    private readonly ToolStripMenuItem _dashboardStateItem;
+    private readonly ToolStripMenuItem _startDashboardItem;
     private readonly ToolStripMenuItem _profilesItem;
     private readonly ToolStripMenuItem _pauseAllItem;
     private readonly ToolStripMenuItem _resumeAllItem;
@@ -32,6 +41,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
         PropertyNameCaseInsensitive = true
     };
 
+    private ServiceControllerStatus? _serviceStatus;
+    private bool _dashboardResponsive;
     private string? _installDirectory;
     private string? _executablePath;
     private RuntimeHealthSnapshot? _healthSnapshot;
@@ -44,11 +55,34 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         _menu = new ContextMenuStrip();
         _statusItem = new ToolStripMenuItem("Loading FolderSync status...") { Enabled = false };
+        _serviceStateItem = new ToolStripMenuItem("State: unknown") { Enabled = false };
+        _startServiceItem = new ToolStripMenuItem("Start service", null, (_, _) => StartService());
+        _stopServiceItem = new ToolStripMenuItem("Stop service", null, (_, _) => StopService());
+        _restartServiceItem = new ToolStripMenuItem("Restart service", null, (_, _) => RestartService());
+        _serviceItem = new ToolStripMenuItem("Service");
+        _serviceItem.DropDownItems.AddRange(
+        [
+            _serviceStateItem,
+            new ToolStripSeparator(),
+            _startServiceItem,
+            _stopServiceItem,
+            _restartServiceItem
+        ]);
+        _dashboardStateItem = new ToolStripMenuItem("Status: unknown") { Enabled = false };
+        _startDashboardItem = new ToolStripMenuItem("Start dashboard host", null, (_, _) => StartDashboardHost());
         _profilesItem = new ToolStripMenuItem("Profiles");
         _pauseAllItem = new ToolStripMenuItem("Pause all", null, (_, _) => PauseAll());
         _resumeAllItem = new ToolStripMenuItem("Resume all", null, (_, _) => ResumeAll());
         _reconcileAllItem = new ToolStripMenuItem("Reconcile all", null, (_, _) => ReconcileAll());
         _openDashboardItem = new ToolStripMenuItem("Open dashboard", null, async (_, _) => await OpenDashboardAsync());
+        _dashboardItem = new ToolStripMenuItem("Dashboard");
+        _dashboardItem.DropDownItems.AddRange(
+        [
+            _dashboardStateItem,
+            new ToolStripSeparator(),
+            _openDashboardItem,
+            _startDashboardItem
+        ]);
         _openInstallItem = new ToolStripMenuItem("Open install folder", null, (_, _) => OpenInstallFolder());
         _startWithWindowsItem = new ToolStripMenuItem("Start with Windows", null, (_, _) => ToggleStartWithWindows())
         {
@@ -62,7 +96,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
         [
             _statusItem,
             new ToolStripSeparator(),
-            _openDashboardItem,
+            _serviceItem,
+            _dashboardItem,
             _openInstallItem,
             new ToolStripSeparator(),
             _pauseAllItem,
@@ -116,8 +151,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
         try
         {
             ResolveInstallLocation();
+            _serviceStatus = TryGetServiceStatus();
             _healthSnapshot = TryReadJson<RuntimeHealthSnapshot>(GetPath("foldersync-health.json"));
             _controlSnapshot = TryReadJson<RuntimeControlSnapshot>(GetPath("foldersync-control.json")) ?? new RuntimeControlSnapshot();
+            _dashboardResponsive = IsDashboardResponsive();
             ApplyControlOverlay();
             UpdateMenu();
             ShowAlertIfNeeded();
@@ -138,18 +175,27 @@ internal sealed class TrayApplicationContext : ApplicationContext
             return;
         }
 
-        var overallState = _healthSnapshot?.ServiceState ?? "Unknown";
+        var overallState = _serviceStatus.HasValue
+            ? FormatServiceStatus(_serviceStatus.Value)
+            : _healthSnapshot?.ServiceState ?? "Unknown";
         var pausedText = _controlSnapshot?.IsPaused is true ? $"Paused ({_controlSnapshot.Reason ?? "no reason"})" : overallState;
         _statusItem.Text = $"FolderSync: {pausedText}";
         RepairStartupRegistrationIfNeeded();
         _startWithWindowsItem.Checked = IsStartWithWindowsEnabled();
         _restartElevatedItem.Visible = !IsProcessElevated();
+        _serviceStateItem.Text = $"State: {overallState}";
+        _dashboardStateItem.Text = $"Status: {(_dashboardResponsive ? "Running" : "Not running")}";
+        _startServiceItem.Enabled = _serviceStatus is ServiceControllerStatus.Stopped;
+        _stopServiceItem.Enabled = _serviceStatus is ServiceControllerStatus.Running;
+        _restartServiceItem.Enabled = _serviceStatus is ServiceControllerStatus.Running;
+        _startDashboardItem.Enabled = !_dashboardResponsive && !string.IsNullOrWhiteSpace(_executablePath);
 
         var highestSeverity = GetHighestSeverityProfile();
         var iconState = highestSeverity switch
         {
             "error" => "error",
             "warning" => "warning",
+            _ when _serviceStatus is ServiceControllerStatus.Stopped => "warning",
             _ when _controlSnapshot?.IsPaused is true => "paused",
             _ => "running"
         };
@@ -157,8 +203,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         _notifyIcon.Text = TrimNotifyText(BuildNotifyText(overallState));
 
-        _pauseAllItem.Enabled = _controlSnapshot?.IsPaused is not true;
-        _resumeAllItem.Enabled = _controlSnapshot?.IsPaused is true || (_controlSnapshot?.Profiles.Count ?? 0) > 0;
+        var serviceRunning = _serviceStatus is ServiceControllerStatus.Running;
+        _pauseAllItem.Enabled = serviceRunning && _controlSnapshot?.IsPaused is not true;
+        _resumeAllItem.Enabled = serviceRunning && (_controlSnapshot?.IsPaused is true || (_controlSnapshot?.Profiles.Count ?? 0) > 0);
         _reconcileAllItem.Enabled = !string.IsNullOrWhiteSpace(_executablePath);
         _openInstallItem.Enabled = Directory.Exists(_installDirectory);
         _startWithWindowsItem.Enabled = !string.IsNullOrWhiteSpace(GetTrayExecutablePath());
@@ -278,6 +325,23 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
     }
 
+    private bool IsDashboardResponsive()
+    {
+        try
+        {
+            using var client = new HttpClient
+            {
+                Timeout = TimeSpan.FromSeconds(2)
+            };
+            using var response = client.GetAsync(DashboardUrl).GetAwaiter().GetResult();
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private void StartDashboardProcess()
     {
         if (string.IsNullOrWhiteSpace(_executablePath) || !File.Exists(_executablePath))
@@ -306,6 +370,97 @@ internal sealed class TrayApplicationContext : ApplicationContext
             FileName = _installDirectory,
             UseShellExecute = true
         });
+    }
+
+    private void StartDashboardHost()
+    {
+        try
+        {
+            StartDashboardProcess();
+            RefreshState(showErrors: false);
+            ShowBalloon("FolderSync Tray", "Dashboard host started.", ToolTipIcon.Info);
+        }
+        catch (Exception ex)
+        {
+            ShowBalloon("FolderSync Tray", $"Unable to start dashboard host: {ex.Message}", ToolTipIcon.Error);
+        }
+    }
+
+    private void StartService()
+    {
+        try
+        {
+            using var controller = new ServiceController(ServiceName);
+            controller.Start();
+            controller.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(30));
+            RefreshState(showErrors: false);
+            ShowBalloon("FolderSync Tray", "FolderSync service started.", ToolTipIcon.Info);
+        }
+        catch (InvalidOperationException ex) when (ex.InnerException is System.ComponentModel.Win32Exception)
+        {
+            HandleServiceRequiresElevation("start");
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            HandleServiceRequiresElevation("start");
+        }
+        catch (Exception ex)
+        {
+            ShowBalloon("FolderSync Tray", $"Unable to start service: {ex.Message}", ToolTipIcon.Error);
+        }
+    }
+
+    private void StopService()
+    {
+        try
+        {
+            using var controller = new ServiceController(ServiceName);
+            controller.Stop();
+            controller.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(30));
+            RefreshState(showErrors: false);
+            ShowBalloon("FolderSync Tray", "FolderSync service stopped.", ToolTipIcon.Info);
+        }
+        catch (InvalidOperationException ex) when (ex.InnerException is System.ComponentModel.Win32Exception)
+        {
+            HandleServiceRequiresElevation("stop");
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            HandleServiceRequiresElevation("stop");
+        }
+        catch (Exception ex)
+        {
+            ShowBalloon("FolderSync Tray", $"Unable to stop service: {ex.Message}", ToolTipIcon.Error);
+        }
+    }
+
+    private void RestartService()
+    {
+        try
+        {
+            using var controller = new ServiceController(ServiceName);
+            if (controller.Status != ServiceControllerStatus.Stopped)
+            {
+                controller.Stop();
+                controller.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(30));
+            }
+            controller.Start();
+            controller.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(30));
+            RefreshState(showErrors: false);
+            ShowBalloon("FolderSync Tray", "FolderSync service restarted.", ToolTipIcon.Info);
+        }
+        catch (InvalidOperationException ex) when (ex.InnerException is System.ComponentModel.Win32Exception)
+        {
+            HandleServiceRequiresElevation("restart");
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            HandleServiceRequiresElevation("restart");
+        }
+        catch (Exception ex)
+        {
+            ShowBalloon("FolderSync Tray", $"Unable to restart service: {ex.Message}", ToolTipIcon.Error);
+        }
     }
 
     private void PauseAll()
@@ -654,10 +809,30 @@ internal sealed class TrayApplicationContext : ApplicationContext
             RestartElevated();
     }
 
+    private void HandleServiceRequiresElevation(string action)
+    {
+        ShowBalloon("FolderSync Tray", $"Service {action} needs administrator access. Use 'Restart as administrator' in the tray menu.", ToolTipIcon.Warning);
+
+        var result = MessageBox.Show(
+            $"FolderSync service {action} needs administrator access.\n\nRestart the tray app as administrator now?",
+            "FolderSync Tray",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question,
+            MessageBoxDefaultButton.Button1);
+
+        if (result == DialogResult.Yes)
+            RestartElevated();
+    }
+
     private void ApplyControlOverlay()
     {
         if (_healthSnapshot is null || _controlSnapshot is null)
             return;
+
+        if (_serviceStatus.HasValue)
+        {
+            _healthSnapshot.ServiceState = FormatServiceStatus(_serviceStatus.Value);
+        }
 
         if (_controlSnapshot.IsPaused)
         {
@@ -876,6 +1051,34 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private static string FormatStartupCommand(string trayExecutable)
     {
         return $"\"{trayExecutable}\"";
+    }
+
+    private static ServiceControllerStatus? TryGetServiceStatus()
+    {
+        try
+        {
+            using var controller = new ServiceController(ServiceName);
+            return controller.Status;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string FormatServiceStatus(ServiceControllerStatus status)
+    {
+        return status switch
+        {
+            ServiceControllerStatus.Running => "Running",
+            ServiceControllerStatus.Stopped => "Stopped",
+            ServiceControllerStatus.StartPending => "Starting",
+            ServiceControllerStatus.StopPending => "Stopping",
+            ServiceControllerStatus.PausePending => "Pausing",
+            ServiceControllerStatus.Paused => "Paused",
+            ServiceControllerStatus.ContinuePending => "Continuing",
+            _ => status.ToString()
+        };
     }
 
     private static bool IsProcessElevated()

@@ -119,6 +119,68 @@ function New-StartMenuShortcut {
     $shortcut.Save()
 }
 
+function Get-RunningProcessesForExecutable {
+    param(
+        [Parameter(Mandatory = $true)][string]$ExecutablePath
+    )
+
+    $resolvedPath = [System.IO.Path]::GetFullPath($ExecutablePath)
+    $matches = @()
+
+    foreach ($process in Get-CimInstance Win32_Process -ErrorAction SilentlyContinue) {
+        if ([string]::IsNullOrWhiteSpace($process.ExecutablePath)) {
+            continue
+        }
+
+        try {
+            $candidatePath = [System.IO.Path]::GetFullPath($process.ExecutablePath)
+            if ($candidatePath.Equals($resolvedPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $matches += $process
+            }
+        }
+        catch {
+        }
+    }
+
+    return $matches
+}
+
+function Stop-RunningExecutableProcesses {
+    param(
+        [Parameter(Mandatory = $true)][string]$ExecutablePath,
+        [Parameter(Mandatory = $true)][string]$DisplayName
+    )
+
+    if (-not (Test-Path $ExecutablePath)) {
+        return $false
+    }
+
+    $processes = @(Get-RunningProcessesForExecutable -ExecutablePath $ExecutablePath)
+    if ($processes.Count -eq 0) {
+        return $false
+    }
+
+    foreach ($process in $processes) {
+        if ($PSCmdlet.ShouldProcess("$DisplayName PID $($process.ProcessId)", "Stop process")) {
+            Write-Host "Stopping $DisplayName process $($process.ProcessId)..."
+            Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
+        }
+    }
+
+    if ($WhatIfPreference) {
+        return $true
+    }
+
+    Start-Sleep -Seconds 1
+
+    $remaining = @(Get-RunningProcessesForExecutable -ExecutablePath $ExecutablePath)
+    if ($remaining.Count -gt 0) {
+        throw "Failed to stop all running '$DisplayName' processes using $ExecutablePath."
+    }
+
+    return $true
+}
+
 $repoRoot = if ([string]::IsNullOrWhiteSpace($PSScriptRoot)) {
     (Get-Location).Path
 }
@@ -134,7 +196,10 @@ $startMenuDir = Join-Path ([Environment]::GetFolderPath("Programs")) "FolderSync
 $tempRoot = [System.IO.Path]::GetTempPath()
 $publishDir = Join-Path $tempRoot ("foldersync-publish-" + [guid]::NewGuid().ToString("N"))
 $trayPublishDir = Join-Path $tempRoot ("foldersync-tray-publish-" + [guid]::NewGuid().ToString("N"))
+$serviceExePath = Join-Path $targetDir "foldersync.exe"
+$trayExePath = Join-Path $trayTargetDir "foldersync-tray.exe"
 $wasRunning = $false
+$trayWasRunning = $false
 $isAdministrator = Test-IsAdministrator
 
 try {
@@ -193,6 +258,12 @@ try {
         }
     }
 
+    Stop-RunningExecutableProcesses -ExecutablePath $serviceExePath -DisplayName "FolderSync dashboard/command host" | Out-Null
+
+    if (-not $SkipTray) {
+        $trayWasRunning = Stop-RunningExecutableProcesses -ExecutablePath $trayExePath -DisplayName "FolderSync tray companion"
+    }
+
     if ($PSCmdlet.ShouldProcess($targetDir, "Copy published output")) {
         Write-Host "Updating files in $targetDir..."
         Invoke-RobocopyCopy -Source $publishDir -Destination $targetDir -PreserveLiveConfig
@@ -208,8 +279,6 @@ try {
             Invoke-RobocopyCopy -Source $trayPublishDir -Destination $trayTargetDir
         }
 
-        $trayExePath = Join-Path $trayTargetDir "foldersync-tray.exe"
-        $serviceExePath = Join-Path $targetDir "foldersync.exe"
         $trayShortcutPath = Join-Path $startMenuDir "FolderSync Tray.lnk"
         $dashboardShortcutPath = Join-Path $startMenuDir "FolderSync Dashboard.lnk"
         if ($PSCmdlet.ShouldProcess($startMenuDir, "Create Start Menu shortcuts")) {
@@ -227,6 +296,11 @@ try {
                 -WorkingDirectory $targetDir `
                 -Description "FolderSync dashboard" `
                 -IconLocation $trayExePath
+        }
+
+        if ($trayWasRunning -and (Test-Path $trayExePath) -and $PSCmdlet.ShouldProcess($trayExePath, "Restart tray companion")) {
+            Write-Host "Restarting tray companion..."
+            Start-Process -FilePath $trayExePath -WorkingDirectory $trayTargetDir
         }
     }
 
