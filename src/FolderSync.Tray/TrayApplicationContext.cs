@@ -448,7 +448,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
             MinimizeBox = false,
             MaximizeBox = false,
             ShowInTaskbar = false,
-            ClientSize = new Size(430, 220)
+            ClientSize = new Size(430, 244)
+        };
+
+        var sectionLabel = new Label
+        {
+            AutoSize = true,
+            Text = "General",
+            Font = new Font(Control.DefaultFont, FontStyle.Bold),
+            Location = new Point(18, 16)
         };
 
         var startupCheck = new CheckBox
@@ -456,7 +464,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             AutoSize = true,
             Text = "Start tray companion with Windows",
             Checked = IsStartWithWindowsEnabled(),
-            Location = new Point(18, 22)
+            Location = new Point(18, 48)
         };
 
         var toastCheck = new CheckBox
@@ -464,23 +472,23 @@ internal sealed class TrayApplicationContext : ApplicationContext
             AutoSize = true,
             Text = "Enable Windows toast notifications",
             Checked = IsToastNotificationsEnabled(),
-            Location = new Point(18, 56)
+            Location = new Point(18, 82)
         };
 
         var hintLabel = new Label
         {
             AutoSize = false,
-            Location = new Point(18, 94),
-            Size = new Size(394, 58),
-            Text = "Toast notifications are used for service state changes and profile alerts. " +
-                   "Service control still works best from the tray menu or dashboard."
+            Location = new Point(18, 122),
+            Size = new Size(394, 66),
+            Text = "Startup controls the tray companion only, not the FolderSync Windows service.\n\n" +
+                   "Toast notifications are used for service state changes and profile alerts."
         };
 
         var saveButton = new Button
         {
             Text = "Save",
             DialogResult = DialogResult.OK,
-            Location = new Point(236, 172),
+            Location = new Point(236, 194),
             Size = new Size(84, 30)
         };
 
@@ -488,10 +496,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             Text = "Cancel",
             DialogResult = DialogResult.Cancel,
-            Location = new Point(328, 172),
+            Location = new Point(328, 194),
             Size = new Size(84, 30)
         };
 
+        form.Controls.Add(sectionLabel);
         form.Controls.Add(startupCheck);
         form.Controls.Add(toastCheck);
         form.Controls.Add(hintLabel);
@@ -517,24 +526,89 @@ internal sealed class TrayApplicationContext : ApplicationContext
             .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
             .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
             .FirstOrDefault()?.InformationalVersion ?? version;
+        var commit = informationalVersion.Split('+').Skip(1).FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(commit) && commit.Length > 7)
+            commit = commit[..7];
 
         var installPath = _installDirectory ?? "Unknown";
         var exePath = GetTrayExecutablePath() ?? "Unknown";
         var serviceState = _serviceStatus.HasValue ? FormatServiceStatus(_serviceStatus.Value) : "Unknown";
-        var message =
-            $"FolderSync Tray\n\n" +
-            $"Version: {version}\n" +
-            $"Build: {informationalVersion}\n" +
-            $"Service: {serviceState}\n" +
-            $"Dashboard: {(_dashboardResponsive ? "Running" : "Not running")}\n" +
-            $"Install path: {installPath}\n" +
-            $"Tray executable: {exePath}";
+        var dashboardState = _dashboardResponsive ? "Running" : "Available on demand";
 
-        MessageBox.Show(
-            message,
-            "About FolderSync Tray",
-            MessageBoxButtons.OK,
-            MessageBoxIcon.Information);
+        using var form = new Form
+        {
+            Text = "About FolderSync Tray",
+            StartPosition = FormStartPosition.CenterScreen,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            ShowInTaskbar = false,
+            ClientSize = new Size(560, 270)
+        };
+
+        var iconBox = new PictureBox
+        {
+            Location = new Point(24, 28),
+            Size = new Size(48, 48),
+            SizeMode = PictureBoxSizeMode.CenterImage,
+            Image = SystemIcons.Information.ToBitmap()
+        };
+
+        var titleLabel = new Label
+        {
+            AutoSize = true,
+            Text = "FolderSync Tray",
+            Font = new Font(Control.DefaultFont, FontStyle.Bold),
+            Location = new Point(86, 32)
+        };
+
+        var detailsLabel = new Label
+        {
+            AutoSize = false,
+            Location = new Point(86, 64),
+            Size = new Size(446, 132),
+            Text =
+                $"Version:        {version}\n" +
+                $"Commit:         {commit ?? "Unknown"}\n" +
+                $"Service:        {serviceState}\n" +
+                $"Dashboard:      {dashboardState}\n" +
+                $"Install path:   {installPath}\n" +
+                $"Tray executable:{Environment.NewLine}{exePath}"
+        };
+
+        var openInstallButton = new Button
+        {
+            Text = "Open install folder",
+            Location = new Point(240, 220),
+            Size = new Size(130, 30)
+        };
+        openInstallButton.Click += (_, _) => OpenInstallFolder();
+
+        var openDashboardButton = new Button
+        {
+            Text = "Open dashboard",
+            Location = new Point(378, 220),
+            Size = new Size(112, 30)
+        };
+        openDashboardButton.Click += async (_, _) => await OpenDashboardAsync();
+
+        var okButton = new Button
+        {
+            Text = "OK",
+            DialogResult = DialogResult.OK,
+            Location = new Point(498, 220),
+            Size = new Size(62, 30)
+        };
+
+        form.Controls.Add(iconBox);
+        form.Controls.Add(titleLabel);
+        form.Controls.Add(detailsLabel);
+        form.Controls.Add(openInstallButton);
+        form.Controls.Add(openDashboardButton);
+        form.Controls.Add(okButton);
+        form.AcceptButton = okButton;
+
+        form.ShowDialog();
     }
 
     private void HandleToastActivation(string argument, IReadOnlyDictionary<string, string>? payload)
