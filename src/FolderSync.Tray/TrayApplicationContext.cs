@@ -814,6 +814,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             Process.Start(new ProcessStartInfo
             {
                 FileName = trayExecutable,
+                Arguments = "--wait-for-singleton",
                 UseShellExecute = true,
                 Verb = "runas"
             });
