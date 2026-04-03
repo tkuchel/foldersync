@@ -625,8 +625,68 @@ public static class DashboardCommand
     const themeKey = 'foldersync-dashboard-theme';
     const expandedKey = 'foldersync-dashboard-expanded';
     const expandedProfiles = new Set(JSON.parse(localStorage.getItem(expandedKey) || '[]'));
+    const defaultIconHref = '{{GetDashboardIconDataUrl()}}';
     let currentData = null;
     let lastToastTimeout = null;
+
+    function escapeHtml(value) {
+      return String(value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    function getVisualState(data) {
+      if (!data) return 'running';
+      const displayState = String(data.DisplayState || '').toLowerCase();
+      const profiles = data.Runtime?.Profiles || [];
+      if (profiles.some(profile => !!profile.AlertMessage)) return 'warning';
+      if (displayState.includes('stopped')) return 'stopped';
+      if (displayState.includes('paused')) return 'paused';
+      if (data.Control?.IsPaused) return 'paused';
+      return 'running';
+    }
+
+    function getVisualPalette(state) {
+      switch (state) {
+        case 'stopped':
+          return { background: '#8f2635', accent: '#ffbdbd', text: '#ffffff', glow: 'rgba(143,38,53,.24)' };
+        case 'warning':
+          return { background: '#bc7419', accent: '#ffe1a8', text: '#ffffff', glow: 'rgba(188,116,25,.24)' };
+        case 'paused':
+          return { background: '#4a586b', accent: '#ffd276', text: '#ffffff', glow: 'rgba(74,88,107,.22)' };
+        default:
+          return { background: '#0d8b7d', accent: '#b5faee', text: '#ffffff', glow: 'rgba(13,139,125,.22)' };
+      }
+    }
+
+    function renderBrandSvg(state) {
+      const palette = getVisualPalette(state);
+      return `
+<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+  <rect width="64" height="64" rx="16" fill="${palette.background}"></rect>
+  <circle cx="48" cy="16" r="7" fill="${palette.accent}"></circle>
+  <text x="32" y="41" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="700" fill="${palette.text}">FS</text>
+</svg>`;
+    }
+
+    function updateBrandingState(data) {
+      const visualState = getVisualState(data);
+      const palette = getVisualPalette(visualState);
+      document.body.dataset.state = visualState;
+      const brandMark = document.querySelector('.brand-mark');
+      if (brandMark) {
+        brandMark.innerHTML = renderBrandSvg(visualState);
+        brandMark.style.boxShadow = `0 18px 40px ${palette.glow}`;
+      }
+
+      const favicon = document.querySelector('link[rel="icon"]');
+      if (favicon) {
+        favicon.href = 'data:image/svg+xml,' + encodeURIComponent(renderBrandSvg(visualState));
+      }
+    }
 
     function saveExpandedProfiles() {
       localStorage.setItem(expandedKey, JSON.stringify([...expandedProfiles]));
@@ -715,6 +775,7 @@ public static class DashboardCommand
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Failed to load status');
         currentData = data;
+        updateBrandingState(data);
 
         document.getElementById('service-status').textContent = data.DisplayState;
         document.getElementById('paused-status').textContent = data.Control?.IsPaused ? `Paused (${data.Control.Reason || 'no reason'})` : 'Active';
@@ -730,48 +791,54 @@ public static class DashboardCommand
           const pillClass = profileStatusClass(profile);
           const profileStatus = profile.IsPaused ? `Paused${profile.PauseReason ? `: ${profile.PauseReason}` : ''}` : (profile.AlertMessage ? profile.AlertLevel : profile.State);
           const historyOpen = expandedProfiles.has(profile.Name) ? 'open' : '';
+          const safeName = escapeHtml(profile.Name);
+          const safeSubtitle = escapeHtml(profile.Reconciliation?.LastTrigger ? `Last trigger: ${profile.Reconciliation.LastTrigger}` : 'Watching for changes');
+          const safeStatus = escapeHtml(profileStatus || 'Unknown');
+          const safeLastFailure = escapeHtml(profile.LastFailure || 'n/a');
+          const safeReconcile = escapeHtml(profile.Reconciliation?.LastExitDescription || 'n/a');
           div.innerHTML = `
             <div class="profile-head">
               <div class="profile-title">
-                <strong>${profile.Name}</strong>
-                <div class="profile-subtitle">${profile.Reconciliation?.LastTrigger ? `Last trigger: ${profile.Reconciliation.LastTrigger}` : 'Watching for changes'}</div>
+                <strong>${safeName}</strong>
+                <div class="profile-subtitle">${safeSubtitle}</div>
               </div>
-              <span class="${pillClass}">${profileStatus}</span>
+              <span class="${pillClass}">${safeStatus}</span>
             </div>
             <div class="stats">
               <div class="stat"><div class="stat-label">Processed</div><div class="stat-value">${profile.ProcessedCount}</div></div>
               <div class="stat"><div class="stat-label">Failed</div><div class="stat-value">${profile.FailedCount}</div></div>
               <div class="stat"><div class="stat-label">Overflows</div><div class="stat-value">${profile.WatcherOverflowCount}</div></div>
               <div class="stat"><div class="stat-label">Last Sync</div><div class="stat-value">${profile.LastSuccessfulSyncUtc ? new Date(profile.LastSuccessfulSyncUtc).toLocaleString() : 'n/a'}</div></div>
-              <div class="stat"><div class="stat-label">Last Failure</div><div class="stat-value">${profile.LastFailure || 'n/a'}</div></div>
-              <div class="stat"><div class="stat-label">Reconcile</div><div class="stat-value">${profile.Reconciliation?.LastExitDescription || 'n/a'}</div></div>
+              <div class="stat"><div class="stat-label">Last Failure</div><div class="stat-value">${safeLastFailure}</div></div>
+              <div class="stat"><div class="stat-label">Reconcile</div><div class="stat-value">${safeReconcile}</div></div>
             </div>
             <div class="actions">
-              <button data-action="pause-profile" data-profile="${profile.Name}">Pause profile</button>
-              <button data-action="resume-profile" data-profile="${profile.Name}" class="secondary">Resume profile</button>
-              <button data-action="reconcile-profile" data-profile="${profile.Name}" class="secondary">Reconcile now</button>
+              <button data-action="pause-profile" data-profile="${safeName}">Pause profile</button>
+              <button data-action="resume-profile" data-profile="${safeName}" class="secondary">Resume profile</button>
+              <button data-action="reconcile-profile" data-profile="${safeName}" class="secondary">Reconcile now</button>
             </div>
-            <details class="history" data-profile="${profile.Name}" ${historyOpen}>
+            <details class="history" data-profile="${safeName}" ${historyOpen}>
               <summary><span class="toggle secondary">Recent activity</span></summary>
               <div class="history-body">
                 ${(profile.RecentActivities || []).length === 0
                   ? '<div class="history-item"><strong>No recent activity</strong><div class="history-meta">This profile has not written recent history yet.</div></div>'
                   : (profile.RecentActivities || []).map(item => `
                     <div class="history-item">
-                      <strong>${item.Summary}</strong>
-                      <div class="history-meta">${new Date(item.TimestampUtc).toLocaleString()}${item.RelativePath ? ` • ${item.RelativePath}` : ''}</div>
-                      ${item.Details ? `<div>${item.Details}</div>` : ''}
+                      <strong>${escapeHtml(item.Summary)}</strong>
+                      <div class="history-meta">${new Date(item.TimestampUtc).toLocaleString()}${item.RelativePath ? ` • ${escapeHtml(item.RelativePath)}` : ''}</div>
+                      ${item.Details ? `<div>${escapeHtml(item.Details)}</div>` : ''}
                     </div>
                     `).join('')}
               </div>
             </details>
-            ${profile.AlertMessage ? `<pre>${profile.AlertMessage}</pre>` : ''}
+            ${profile.AlertMessage ? `<pre>${escapeHtml(profile.AlertMessage)}</pre>` : ''}
           `;
           host.appendChild(div);
         }
 
         document.getElementById('error-card').style.display = 'none';
       } catch (error) {
+        updateBrandingState(null);
         document.getElementById('error-card').style.display = 'block';
         document.getElementById('error-text').textContent = error.message;
       }
