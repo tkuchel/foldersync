@@ -747,7 +747,7 @@ public static class DashboardCommand
         <div class="value" id="service-status">Loading…</div>
       </div>
       <div class="card">
-        <div class="label">Paused</div>
+        <div class="label">Sync Control</div>
         <div class="value" id="paused-status">Loading…</div>
       </div>
       <div class="card">
@@ -1160,14 +1160,20 @@ public static class DashboardCommand
         updateBrandingState(data);
 
         document.getElementById('service-status').textContent = data.DisplayState;
-        document.getElementById('paused-status').textContent = data.Control?.IsPaused ? `Paused (${data.Control.Reason || 'no reason'})` : 'Active';
-        document.getElementById('profile-count').textContent = (data.Runtime?.Profiles || []).length;
+        const runtimeProfiles = data.Runtime?.Profiles || [];
+        const pausedProfiles = runtimeProfiles.filter(profile => profile.IsPaused);
+        const pauseControlText = data.Control?.IsPaused
+          ? `Globally paused${data.Control.Reason ? `: ${data.Control.Reason}` : ''}`
+          : pausedProfiles.length > 0
+            ? `${pausedProfiles.length} profile${pausedProfiles.length === 1 ? '' : 's'} paused`
+            : 'Live syncing';
+        document.getElementById('paused-status').textContent = pauseControlText;
+        document.getElementById('profile-count').textContent = runtimeProfiles.length;
         document.getElementById('updated').textContent = data.Runtime?.UpdatedAtUtc ? `Updated ${new Date(data.Runtime.UpdatedAtUtc).toLocaleString()}` : 'No runtime snapshot';
 
         const host = document.getElementById('profiles');
         host.innerHTML = '';
         const filterText = document.getElementById('profile-filter').value.trim();
-        const runtimeProfiles = data.Runtime?.Profiles || [];
         const configuredProfiles = currentConfig?.Profiles || [];
         const visibleProfiles = runtimeProfiles.filter(item => matchesFilter(item, filterText));
         if (visibleProfiles.length === 0 && !filterText && configuredProfiles.length === 0) {
