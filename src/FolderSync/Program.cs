@@ -11,6 +11,7 @@ rootCommand.Subcommands.Add(StatusCommand.Create());
 rootCommand.Subcommands.Add(HealthCommand.Create());
 rootCommand.Subcommands.Add(DashboardCommand.Create());
 rootCommand.Subcommands.Add(ReconcileCommand.Create());
+rootCommand.Subcommands.Add(TwoWayPreviewCommand.Create());
 rootCommand.Subcommands.Add(ValidateConfigCommand.Create());
 
 // Default (no subcommand): run in service/console mode

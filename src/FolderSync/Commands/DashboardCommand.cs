@@ -130,6 +130,12 @@ public static class DashboardCommand
                 return;
             }
 
+            if (string.Equals(path, "/api/control/twoway-preview", StringComparison.OrdinalIgnoreCase))
+            {
+                await HandleTwoWayPreviewRequestAsync(context, serviceName);
+                return;
+            }
+
             context.Response.ContentType = "text/html; charset=utf-8";
             var html = GetDashboardHtml(serviceName);
             var bytes = Encoding.UTF8.GetBytes(html);
@@ -430,6 +436,96 @@ public static class DashboardCommand
         {
             ok = true,
             action = "force-sync",
+            profile = request.Profile
+        });
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static async Task HandleTwoWayPreviewRequestAsync(HttpListenerContext context, string serviceName)
+    {
+        if (context.Request.HttpMethod != "POST")
+        {
+            context.Response.StatusCode = 405;
+            await WriteJsonAsync(context.Response, new { error = "POST required." });
+            return;
+        }
+
+        var report = StatusCommand.TryBuildStatusReport(serviceName, out var error);
+        if (report is null || string.IsNullOrWhiteSpace(report.BinaryPath))
+        {
+            context.Response.StatusCode = 500;
+            await WriteJsonAsync(context.Response, new { error = error ?? "Failed to resolve installed executable." });
+            return;
+        }
+
+        var executablePath = NormalizeExecutablePath(report.BinaryPath);
+        var configPath = report.ConfigPath;
+        if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath))
+        {
+            context.Response.StatusCode = 500;
+            await WriteJsonAsync(context.Response, new { error = "Installed executable not found." });
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath))
+        {
+            context.Response.StatusCode = 500;
+            await WriteJsonAsync(context.Response, new { error = "Installed appsettings.json not found." });
+            return;
+        }
+
+        DashboardControlRequest? request;
+        try
+        {
+            using var reader = new StreamReader(context.Request.InputStream, context.Request.ContentEncoding ?? Encoding.UTF8);
+            var body = await reader.ReadToEndAsync();
+            request = string.IsNullOrWhiteSpace(body)
+                ? new DashboardControlRequest()
+                : JsonSerializer.Deserialize<DashboardControlRequest>(body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new DashboardControlRequest();
+        }
+        catch
+        {
+            context.Response.StatusCode = 400;
+            await WriteJsonAsync(context.Response, new { error = "Invalid request payload." });
+            return;
+        }
+
+        var arguments = $"twoway-preview --config \"{configPath}\" --trigger Dashboard";
+        if (!string.IsNullOrWhiteSpace(request.Profile))
+            arguments += $" --profile \"{request.Profile}\"";
+
+        try
+        {
+            var process = new System.Diagnostics.Process
+            {
+                StartInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = executablePath,
+                    Arguments = arguments,
+                    WorkingDirectory = Path.GetDirectoryName(executablePath)!,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            process.Start();
+            UpdateRuntimeControlActivity(
+                report.InstallDirectory!,
+                "preview",
+                request.Profile,
+                "Two-way preview requested from dashboard");
+        }
+        catch (Exception ex)
+        {
+            context.Response.StatusCode = 500;
+            await WriteJsonAsync(context.Response, new { error = $"Failed to start two-way preview: {ex.Message}" });
+            return;
+        }
+
+        await WriteJsonAsync(context.Response, new
+        {
+            ok = true,
+            action = "twoway-preview",
             profile = request.Profile
         });
     }
@@ -1395,6 +1491,7 @@ public static class DashboardCommand
               <button data-action="pause-profile" data-profile="${safeName}">Pause profile</button>
               <button data-action="resume-profile" data-profile="${safeName}" class="secondary">Resume profile</button>
               <button data-action="reconcile-profile" data-profile="${safeName}" class="secondary">Force sync now</button>
+              <button data-action="preview-profile" data-profile="${safeName}" class="secondary">Preview two-way diff</button>
               <button data-action="edit-profile" data-profile="${safeName}" class="secondary">Edit profile</button>
             </div>
             <div class="summary-strip">${summaryChips}</div>
@@ -1558,14 +1655,18 @@ public static class DashboardCommand
         ? '/api/control/pause'
         : action === 'resume-profile'
           ? '/api/control/resume'
-          : '/api/control/reconcile';
+          : action === 'preview-profile'
+            ? '/api/control/twoway-preview'
+            : '/api/control/reconcile';
       try {
         await postControl(path, profile);
         const actionLabel = action === 'pause-profile'
           ? `Paused ${profile}`
           : action === 'resume-profile'
             ? `Resumed ${profile}`
-            : `Started force sync for ${profile}`;
+            : action === 'preview-profile'
+              ? `Started two-way preview for ${profile}`
+              : `Started force sync for ${profile}`;
         showToast(actionLabel);
         await refresh();
       } catch (error) {
