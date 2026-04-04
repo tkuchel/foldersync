@@ -217,6 +217,7 @@ internal static class DashboardProfileConfigManager
             IgnoreLastWriteTimeDriftSeconds = profile.IgnoreLastWriteTimeDriftSeconds,
             DebounceWindowMilliseconds = profile.DebounceWindowMilliseconds,
             DryRun = profile.DryRun,
+            SyncMode = profile.SyncMode,
             StabilityCheck = profile.StabilityCheck is null
                 ? null
                 : new StabilityCheckOptions
@@ -245,6 +246,16 @@ internal static class DashboardProfileConfigManager
                     UseRobocopy = profile.Reconciliation.UseRobocopy,
                     RobocopyOptions = profile.Reconciliation.RobocopyOptions
                 },
+            TwoWay = profile.TwoWay is null
+                ? null
+                : new TwoWayOptions
+                {
+                    PropagateDeletes = profile.TwoWay.PropagateDeletes,
+                    ConflictMode = profile.TwoWay.ConflictMode,
+                    RequireHashComparison = profile.TwoWay.RequireHashComparison,
+                    StateStorePath = profile.TwoWay.StateStorePath,
+                    PreferRenameDetection = profile.TwoWay.PreferRenameDetection
+                },
             Exclusions = profile.Exclusions is null
                 ? null
                 : new ExclusionOptions
@@ -262,6 +273,8 @@ internal static class DashboardProfileConfigManager
         profile.SourcePath = profile.SourcePath.Trim();
         profile.DestinationPath = profile.DestinationPath.Trim();
         profile.DeleteArchivePath = string.IsNullOrWhiteSpace(profile.DeleteArchivePath) ? null : profile.DeleteArchivePath.Trim();
+        if (profile.TwoWay is not null)
+            profile.TwoWay.StateStorePath = string.IsNullOrWhiteSpace(profile.TwoWay.StateStorePath) ? string.Empty : profile.TwoWay.StateStorePath.Trim();
 
         if (profile.Exclusions is not null)
         {

@@ -89,11 +89,13 @@ public sealed class SyncProfileConfig
     public int? IgnoreLastWriteTimeDriftSeconds { get; set; }
     public int? DebounceWindowMilliseconds { get; set; }
     public bool? DryRun { get; set; }
+    public SyncMode? SyncMode { get; set; }
 
     public StabilityCheckOptions? StabilityCheck { get; set; }
     public RetryOptions? Retry { get; set; }
     public ReconciliationOptions? Reconciliation { get; set; }
     public ExclusionOptions? Exclusions { get; set; }
+    public TwoWayOptions? TwoWay { get; set; }
 
     /// <summary>
     /// Produces the effective SyncOptions by starting from defaults
@@ -116,6 +118,7 @@ public sealed class SyncProfileConfig
         if (IgnoreLastWriteTimeDriftSeconds.HasValue) result.IgnoreLastWriteTimeDriftSeconds = IgnoreLastWriteTimeDriftSeconds.Value;
         if (DebounceWindowMilliseconds.HasValue) result.DebounceWindowMilliseconds = DebounceWindowMilliseconds.Value;
         if (DryRun.HasValue) result.DryRun = DryRun.Value;
+        if (SyncMode.HasValue) result.SyncMode = SyncMode.Value;
 
         if (StabilityCheck is not null)
         {
@@ -150,6 +153,18 @@ public sealed class SyncProfileConfig
                 RobocopyOptions = string.IsNullOrWhiteSpace(Reconciliation.RobocopyOptions)
                     ? defaults.Reconciliation.RobocopyOptions
                     : Reconciliation.RobocopyOptions
+            };
+        }
+
+        if (TwoWay is not null)
+        {
+            result.TwoWay = new TwoWayOptions
+            {
+                PropagateDeletes = TwoWay.PropagateDeletes,
+                ConflictMode = TwoWay.ConflictMode,
+                RequireHashComparison = TwoWay.RequireHashComparison,
+                StateStorePath = TwoWay.StateStorePath,
+                PreferRenameDetection = TwoWay.PreferRenameDetection
             };
         }
 
@@ -195,11 +210,13 @@ public sealed class SyncOptions
     public int IgnoreLastWriteTimeDriftSeconds { get; set; } = 2;
     public int DebounceWindowMilliseconds { get; set; } = 1500;
     public bool DryRun { get; set; }
+    public SyncMode SyncMode { get; set; } = SyncMode.OneWay;
 
     public StabilityCheckOptions StabilityCheck { get; set; } = new();
     public RetryOptions Retry { get; set; } = new();
     public ReconciliationOptions Reconciliation { get; set; } = new();
     public ExclusionOptions Exclusions { get; set; } = new();
+    public TwoWayOptions TwoWay { get; set; } = new();
 
     public SyncOptions Clone()
     {
@@ -216,6 +233,7 @@ public sealed class SyncOptions
             IgnoreLastWriteTimeDriftSeconds = IgnoreLastWriteTimeDriftSeconds,
             DebounceWindowMilliseconds = DebounceWindowMilliseconds,
             DryRun = DryRun,
+            SyncMode = SyncMode,
             StabilityCheck = new StabilityCheckOptions
             {
                 Enabled = StabilityCheck.Enabled,
@@ -243,6 +261,14 @@ public sealed class SyncOptions
                 DirectoryNames = [.. Exclusions.DirectoryNames],
                 FilePatterns = [.. Exclusions.FilePatterns],
                 Extensions = [.. Exclusions.Extensions]
+            },
+            TwoWay = new TwoWayOptions
+            {
+                PropagateDeletes = TwoWay.PropagateDeletes,
+                ConflictMode = TwoWay.ConflictMode,
+                RequireHashComparison = TwoWay.RequireHashComparison,
+                StateStorePath = TwoWay.StateStorePath,
+                PreferRenameDetection = TwoWay.PreferRenameDetection
             }
         };
     }
@@ -287,4 +313,13 @@ public sealed class NotificationOptions
     public string WebhookUrl { get; set; } = string.Empty;
     public int CooldownMinutes { get; set; } = 15;
     public string TitlePrefix { get; set; } = "FolderSync";
+}
+
+public sealed class TwoWayOptions
+{
+    public bool PropagateDeletes { get; set; }
+    public TwoWayConflictMode ConflictMode { get; set; } = TwoWayConflictMode.Manual;
+    public bool RequireHashComparison { get; set; } = true;
+    public string StateStorePath { get; set; } = string.Empty;
+    public bool PreferRenameDetection { get; set; } = true;
 }

@@ -155,4 +155,23 @@ public sealed class ProfileConfigurationValidatorTests : IDisposable
         Assert.False(result.HasErrors);
         Assert.Contains(result.Warnings, w => w.Message.Contains("/MIR", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenTwoWaySyncModeIsConfigured()
+    {
+        var source = Path.Combine(_tempDir, "source");
+        Directory.CreateDirectory(source);
+
+        var profile = new ResolvedProfile("test", new SyncOptions
+        {
+            SourcePath = source,
+            DestinationPath = Path.Combine(_tempDir, "dest"),
+            SyncMode = SyncMode.TwoWayPreview
+        });
+
+        var result = ProfileConfigurationValidator.Validate([profile]);
+
+        Assert.True(result.HasErrors);
+        Assert.Contains(result.Errors, e => e.Message.Contains("not supported yet", StringComparison.Ordinal));
+    }
 }

@@ -316,4 +316,38 @@ public sealed class ConfigMergingTests
         Assert.Equal(ConflictMode.KeepNewest, original.ConflictMode);
         Assert.Equal(2, original.Exclusions.DirectoryNames.Count);
     }
+
+    [Fact]
+    public void MergeWithDefaults_ProfileCanOverrideSyncModeAndTwoWayOptions()
+    {
+        var defaults = new SyncOptions
+        {
+            SyncMode = SyncMode.OneWay,
+            TwoWay = new TwoWayOptions
+            {
+                ConflictMode = TwoWayConflictMode.Manual,
+                RequireHashComparison = true
+            }
+        };
+
+        var profile = new SyncProfileConfig
+        {
+            Name = "test",
+            SourcePath = @"C:\Source",
+            DestinationPath = @"C:\Dest",
+            SyncMode = SyncMode.TwoWayPreview,
+            TwoWay = new TwoWayOptions
+            {
+                ConflictMode = TwoWayConflictMode.KeepBoth,
+                StateStorePath = @"C:\State\twoway.json"
+            }
+        };
+
+        var result = profile.MergeWithDefaults(defaults);
+
+        Assert.Equal(SyncMode.TwoWayPreview, result.SyncMode);
+        Assert.Equal(TwoWayConflictMode.KeepBoth, result.TwoWay.ConflictMode);
+        Assert.Equal(@"C:\State\twoway.json", result.TwoWay.StateStorePath);
+        Assert.True(result.TwoWay.RequireHashComparison);
+    }
 }

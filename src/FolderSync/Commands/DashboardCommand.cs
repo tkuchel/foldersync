@@ -685,6 +685,8 @@ public static class DashboardCommand
     .stat-label { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
     .stat-value { margin-top: 4px; font-size: 1rem; font-weight: 700; }
     .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top: 14px; }
+    .summary-strip { margin-top: 14px; display:flex; flex-wrap:wrap; gap:8px; }
+    .summary-chip { padding: 6px 10px; border-radius: 999px; background: var(--subtle); border: 1px solid var(--border); font-size: .82rem; color: var(--muted); }
     .history { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 14px; display:block; }
     .history > summary { list-style: none; cursor: pointer; display:flex; align-items:center; }
     .history > summary::-webkit-details-marker { display: none; }
@@ -773,6 +775,17 @@ public static class DashboardCommand
       <label>
         Pause reason
         <input id="pause-reason" type="text" placeholder="Maintenance window">
+      </label>
+      <label>
+        Activity filter
+        <select id="activity-filter">
+          <option value="all">All activity</option>
+          <option value="sync">Syncs only</option>
+          <option value="skip">Skips only</option>
+          <option value="failure">Failures only</option>
+          <option value="reconcile">Reconciles only</option>
+          <option value="watcher">Watcher events</option>
+        </select>
       </label>
       <button id="pause-all">Pause all</button>
       <button id="resume-all" class="secondary">Resume all</button>
@@ -1195,6 +1208,35 @@ public static class DashboardCommand
       return 'pill';
     }
 
+    function getActivityFilter() {
+      return document.getElementById('activity-filter').value || 'all';
+    }
+
+    function matchesActivityFilter(item, filter) {
+      if (!filter || filter === 'all') return true;
+      if (filter === 'watcher') return item.Kind === 'watcher' || item.Kind === 'overflow';
+      return item.Kind === filter;
+    }
+
+    function summarizeActivities(activities) {
+      const summary = { sync: 0, skip: 0, failure: 0, reconcile: 0, watcher: 0 };
+      for (const item of activities) {
+        if (item.Kind === 'sync') summary.sync++;
+        else if (item.Kind === 'skip') summary.skip++;
+        else if (item.Kind === 'failure') summary.failure++;
+        else if (item.Kind === 'reconcile') summary.reconcile++;
+        else if (item.Kind === 'watcher' || item.Kind === 'overflow') summary.watcher++;
+      }
+
+      return [
+        `Recent syncs ${summary.sync}`,
+        `Transient skips ${summary.skip}`,
+        `Failures ${summary.failure}`,
+        `Reconciles ${summary.reconcile}`,
+        `Watcher events ${summary.watcher}`
+      ];
+    }
+
     function collapseActivities(activities) {
       const source = Array.isArray(activities) ? activities : [];
       const collapsed = [];
@@ -1276,6 +1318,9 @@ public static class DashboardCommand
         }
         for (const profile of visibleProfiles) {
           const configuredProfile = configuredProfiles.find(item => item.Name.toLowerCase() === profile.Name.toLowerCase()) || null;
+          const collapsedActivities = collapseActivities(profile.RecentActivities || []);
+          const filteredActivities = collapsedActivities.filter(item => matchesActivityFilter(item, getActivityFilter()));
+          const summaryChips = summarizeActivities(collapsedActivities).map(text => `<span class="summary-chip">${escapeHtml(text)}</span>`).join('');
           const div = document.createElement('div');
           div.className = 'profile';
           const pillClass = profileStatusClass(profile);
@@ -1321,12 +1366,13 @@ public static class DashboardCommand
               <button data-action="reconcile-profile" data-profile="${safeName}" class="secondary">Force sync now</button>
               <button data-action="edit-profile" data-profile="${safeName}" class="secondary">Edit profile</button>
             </div>
+            <div class="summary-strip">${summaryChips}</div>
             <details class="history" data-profile="${safeName}" ${historyOpen}>
               <summary><span class="toggle secondary">Recent activity</span></summary>
               <div class="history-body">
-                ${collapseActivities(profile.RecentActivities || []).length === 0
+                ${filteredActivities.length === 0
                   ? '<div class="history-item"><strong>No recent activity</strong><div class="history-meta">This profile has not written recent history yet.</div></div>'
-                  : collapseActivities(profile.RecentActivities || []).map(item => `
+                  : filteredActivities.map(item => `
                     <div class="history-item ${escapeHtml(item.DisplayClass || '')}">
                       <strong>${escapeHtml(item.Summary)}</strong>
                       <div class="history-meta">${new Date(item.TimestampUtc).toLocaleString()}${item.RelativePath ? ` • ${escapeHtml(item.RelativePath)}` : ''}${item.DisplayMetaExtra ? ` • ${escapeHtml(item.DisplayMetaExtra)}` : ''}</div>
@@ -1374,6 +1420,10 @@ public static class DashboardCommand
 
     document.getElementById('profile-filter').addEventListener('input', () => {
       syncFilterToUrl();
+      refresh();
+    });
+
+    document.getElementById('activity-filter').addEventListener('change', () => {
       refresh();
     });
 

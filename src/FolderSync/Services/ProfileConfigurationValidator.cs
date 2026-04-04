@@ -83,8 +83,22 @@ public static class ProfileConfigurationValidator
         if (IsUnderRoot(normalizedSource, normalizedDest))
             result.AddError($"[{profile.Name}] Source path cannot be inside the destination path");
 
+        ValidateSyncMode(profile, result);
+
         ValidateDeletionSettings(profile, validationOptions, result, normalizedDest);
         ValidateReconciliationSettings(profile, validationOptions, result);
+    }
+
+    private static void ValidateSyncMode(
+        ResolvedProfile profile,
+        ProfileValidationResult result)
+    {
+        var syncOptions = profile.Options;
+        if (syncOptions.SyncMode == SyncMode.OneWay)
+            return;
+
+        result.AddError(
+            $"[{profile.Name}] SyncMode '{syncOptions.SyncMode}' is not supported yet. Bidirectional modes are planned but not implemented.");
     }
 
     private static void ValidateCrossProfileRelationships(

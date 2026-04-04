@@ -32,3 +32,20 @@ public enum DeleteMode
     Archive,
     Delete
 }
+
+public enum SyncMode
+{
+    OneWay,
+    TwoWayPreview,
+    TwoWaySafe,
+    TwoWay
+}
+
+public enum TwoWayConflictMode
+{
+    Manual,
+    KeepNewest,
+    KeepBoth,
+    PreferLeft,
+    PreferRight
+}
