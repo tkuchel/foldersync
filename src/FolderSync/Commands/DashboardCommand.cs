@@ -663,9 +663,10 @@ public static class DashboardCommand
     .toolbar label { display:grid; gap:6px; font-size:.85rem; color: var(--muted); }
     .toolbar input, .toolbar select, .modal input, .modal select, .modal textarea { min-width: 220px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); color: var(--ink); font: inherit; }
     .modal textarea { min-height: 88px; resize: vertical; }
-    .toolbar button, .actions button, .toggle, .theme-toggle { border: 0; border-radius: 999px; padding: 10px 14px; background: var(--accent); color: white; font-weight: 600; cursor: pointer; transition: transform .15s ease, opacity .15s ease; }
-    .toolbar button:hover, .actions button:hover, .toggle:hover, .theme-toggle:hover { transform: translateY(-1px); }
-    .toolbar button.secondary, .actions button.secondary, .toggle.secondary, .theme-toggle.secondary { background: var(--button-secondary-bg); color: var(--button-secondary-ink); }
+    .toolbar button, .actions button, .toggle, .theme-toggle, .modal-button { border: 0; border-radius: 999px; padding: 10px 14px; background: var(--accent); color: white; font-weight: 600; cursor: pointer; transition: transform .15s ease, opacity .15s ease; }
+    .toolbar button:hover, .actions button:hover, .toggle:hover, .theme-toggle:hover, .modal-button:hover { transform: translateY(-1px); }
+    .toolbar button.secondary, .actions button.secondary, .toggle.secondary, .theme-toggle.secondary, .modal-button.secondary { background: var(--button-secondary-bg); color: var(--button-secondary-ink); }
+    .modal-button.danger { background: color-mix(in srgb, var(--danger) 85%, black 10%); color: #fff; }
     .toolbar .spacer { flex: 1 1 auto; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
     .card { background: var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 18px; box-shadow: var(--shadow); }
@@ -710,9 +711,14 @@ public static class DashboardCommand
     .modal-stack { display:grid; gap: 12px; margin-top: 12px; }
     .modal-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
     .modal-section h3 { margin: 0 0 10px; font-size: 1rem; }
-    .checkbox-row { display:flex; gap:16px; flex-wrap:wrap; }
-    .checkbox-row label { display:flex; gap:8px; align-items:center; font-size:.95rem; color: var(--ink); }
-    .modal-actions { display:flex; gap:10px; justify-content:flex-end; margin-top: 18px; }
+    .checkbox-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+    .checkbox-card { display:flex; align-items:flex-start; gap:12px; padding: 12px 14px; border-radius: 14px; background: var(--subtle); border: 1px solid var(--border); min-height: 58px; }
+    .checkbox-card input[type="checkbox"] { min-width: 18px; width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); }
+    .checkbox-copy { display:grid; gap: 2px; }
+    .checkbox-title { font-size:.98rem; color: var(--ink); font-weight: 600; line-height: 1.2; }
+    .checkbox-help { font-size:.82rem; color: var(--muted); line-height: 1.35; }
+    .modal-actions { display:flex; gap:10px; justify-content:flex-end; align-items:center; margin-top: 18px; }
+    .modal-actions .push-left { margin-right:auto; }
     .profile-empty { padding: 18px; border: 1px dashed var(--border); border-radius: 18px; color: var(--muted); text-align:center; background: color-mix(in srgb, var(--panel) 88%, var(--subtle)); }
     pre { white-space: pre-wrap; background: var(--subtle); border: 1px solid var(--border); border-radius: 12px; padding: 12px; font-size: .85rem; }
     @media (max-width: 720px) {
@@ -721,7 +727,9 @@ public static class DashboardCommand
       .toolbar { flex-direction: column; align-items: stretch; }
       .toolbar input { min-width: 0; width: 100%; }
       .toolbar .spacer { display:none; }
-      .modal-actions { justify-content:stretch; flex-direction:column; }
+      .checkbox-grid { grid-template-columns: 1fr; }
+      .modal-actions { justify-content:stretch; flex-direction:column; align-items:stretch; }
+      .modal-actions .push-left { margin-right:0; }
     }
   </style>
 </head>
@@ -805,13 +813,49 @@ public static class DashboardCommand
       </div>
       <div class="modal-section">
         <h3>Flags</h3>
-        <div class="checkbox-row">
-          <label><input id="profile-include-subdirs" type="checkbox"> Include subdirectories</label>
-          <label><input id="profile-sync-deletions" type="checkbox"> Sync deletions</label>
-          <label><input id="profile-dry-run" type="checkbox"> Dry run</label>
-          <label><input id="profile-reconcile-enabled" type="checkbox"> Reconciliation enabled</label>
-          <label><input id="profile-reconcile-startup" type="checkbox"> Run reconciliation on startup</label>
-          <label><input id="profile-use-robocopy" type="checkbox"> Use robocopy</label>
+        <div class="checkbox-grid">
+          <label class="checkbox-card">
+            <input id="profile-include-subdirs" type="checkbox">
+            <span class="checkbox-copy">
+              <span class="checkbox-title">Include subdirectories</span>
+              <span class="checkbox-help">Watch and sync nested folders under the source path.</span>
+            </span>
+          </label>
+          <label class="checkbox-card">
+            <input id="profile-sync-deletions" type="checkbox">
+            <span class="checkbox-copy">
+              <span class="checkbox-title">Sync deletions</span>
+              <span class="checkbox-help">Propagate source deletes using the configured delete mode.</span>
+            </span>
+          </label>
+          <label class="checkbox-card">
+            <input id="profile-dry-run" type="checkbox">
+            <span class="checkbox-copy">
+              <span class="checkbox-title">Dry run</span>
+              <span class="checkbox-help">Simulate sync actions without writing files.</span>
+            </span>
+          </label>
+          <label class="checkbox-card">
+            <input id="profile-reconcile-enabled" type="checkbox">
+            <span class="checkbox-copy">
+              <span class="checkbox-title">Reconciliation enabled</span>
+              <span class="checkbox-help">Run periodic catch-up checks in addition to live watcher events.</span>
+            </span>
+          </label>
+          <label class="checkbox-card">
+            <input id="profile-reconcile-startup" type="checkbox">
+            <span class="checkbox-copy">
+              <span class="checkbox-title">Run reconciliation on startup</span>
+              <span class="checkbox-help">Force an initial catch-up pass when the service starts.</span>
+            </span>
+          </label>
+          <label class="checkbox-card">
+            <input id="profile-use-robocopy" type="checkbox">
+            <span class="checkbox-copy">
+              <span class="checkbox-title">Use robocopy</span>
+              <span class="checkbox-help">Use robocopy for reconciliation instead of the managed copy path.</span>
+            </span>
+          </label>
         </div>
       </div>
       <div class="modal-section">
@@ -829,9 +873,9 @@ public static class DashboardCommand
         </div>
       </div>
       <div class="modal-actions">
-        <button id="profile-delete" class="secondary" type="button" style="margin-right:auto; display:none;">Delete profile</button>
-        <button id="profile-cancel" class="secondary" type="button">Cancel</button>
-        <button id="profile-save" type="button">Save profile</button>
+        <button id="profile-delete" class="modal-button danger push-left" type="button" style="display:none;">Delete profile</button>
+        <button id="profile-cancel" class="modal-button secondary" type="button">Cancel</button>
+        <button id="profile-save" class="modal-button" type="button">Save profile</button>
       </div>
     </div>
   </div>
