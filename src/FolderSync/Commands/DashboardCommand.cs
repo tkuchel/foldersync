@@ -692,6 +692,7 @@ public static class DashboardCommand
     .history[open] > summary::before { transform: rotate(90deg); }
     .history-body { display:grid; gap:10px; margin-top: 12px; }
     .history-item { padding: 10px 12px; border-radius: 12px; background: var(--subtle); border: 1px solid var(--border); }
+    .history-item.skip-bundle { border-color: color-mix(in srgb, var(--accent) 24%, var(--border)); background: color-mix(in srgb, var(--success-bg) 45%, var(--subtle)); }
     .history-item strong { display:block; margin-bottom:4px; }
     .history-meta { color: var(--muted); font-size: .85rem; }
     .toast { display:none; margin-top: 16px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--border); background: var(--subtle); }
@@ -1194,6 +1195,56 @@ public static class DashboardCommand
       return 'pill';
     }
 
+    function collapseActivities(activities) {
+      const source = Array.isArray(activities) ? activities : [];
+      const collapsed = [];
+
+      for (let index = 0; index < source.length; index++) {
+        const item = source[index];
+        const isTransientSkip = item?.Kind === 'skip' && item?.Details === 'File not stable';
+        if (!isTransientSkip) {
+          collapsed.push({
+            ...item,
+            DisplayClass: '',
+            DisplayMetaExtra: ''
+          });
+          continue;
+        }
+
+        const filenames = [];
+        let count = 0;
+        let endIndex = index;
+
+        while (endIndex < source.length) {
+          const next = source[endIndex];
+          if (!(next?.Kind === 'skip' && next?.Details === 'File not stable')) break;
+          count++;
+          if (next.RelativePath) filenames.push(next.RelativePath);
+          endIndex++;
+        }
+
+        const uniqueFiles = [...new Set(filenames)];
+        const preview = uniqueFiles.slice(0, 3).join(', ');
+        const extraCount = Math.max(0, uniqueFiles.length - 3);
+        const details = preview
+          ? `File not stable${extraCount > 0 ? ` • ${preview} +${extraCount} more` : ` • ${preview}`}`
+          : 'File not stable';
+
+        collapsed.push({
+          ...item,
+          Summary: count === 1 ? item.Summary : `Skipped ${count} transient files`,
+          RelativePath: null,
+          Details: details,
+          DisplayClass: 'skip-bundle',
+          DisplayMetaExtra: count === 1 ? 'Transient skip' : `${count} transient skips`
+        });
+
+        index = endIndex - 1;
+      }
+
+      return collapsed;
+    }
+
     async function refresh() {
       try {
         rememberExpandedPanels();
@@ -1254,6 +1305,7 @@ public static class DashboardCommand
             </div>
             <div class="stats">
               <div class="stat"><div class="stat-label">Processed</div><div class="stat-value">${profile.ProcessedCount}</div></div>
+              <div class="stat"><div class="stat-label">Skipped</div><div class="stat-value">${profile.SkippedCount}</div></div>
               <div class="stat"><div class="stat-label">Failed</div><div class="stat-value">${profile.FailedCount}</div></div>
               <div class="stat"><div class="stat-label">Overflows</div><div class="stat-value">${profile.WatcherOverflowCount}</div></div>
               <div class="stat"><div class="stat-label">Watcher</div><div class="stat-value">${safeWatcherState}</div></div>
@@ -1272,12 +1324,12 @@ public static class DashboardCommand
             <details class="history" data-profile="${safeName}" ${historyOpen}>
               <summary><span class="toggle secondary">Recent activity</span></summary>
               <div class="history-body">
-                ${(profile.RecentActivities || []).length === 0
+                ${collapseActivities(profile.RecentActivities || []).length === 0
                   ? '<div class="history-item"><strong>No recent activity</strong><div class="history-meta">This profile has not written recent history yet.</div></div>'
-                  : (profile.RecentActivities || []).map(item => `
-                    <div class="history-item">
+                  : collapseActivities(profile.RecentActivities || []).map(item => `
+                    <div class="history-item ${escapeHtml(item.DisplayClass || '')}">
                       <strong>${escapeHtml(item.Summary)}</strong>
-                      <div class="history-meta">${new Date(item.TimestampUtc).toLocaleString()}${item.RelativePath ? ` • ${escapeHtml(item.RelativePath)}` : ''}</div>
+                      <div class="history-meta">${new Date(item.TimestampUtc).toLocaleString()}${item.RelativePath ? ` • ${escapeHtml(item.RelativePath)}` : ''}${item.DisplayMetaExtra ? ` • ${escapeHtml(item.DisplayMetaExtra)}` : ''}</div>
                       ${item.Details ? `<div>${escapeHtml(item.Details)}</div>` : ''}
                     </div>
                     `).join('')}
