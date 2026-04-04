@@ -53,6 +53,7 @@ public sealed class ReconciliationServiceTests
             var service = new ReconciliationService(
                 "alpha",
                 robocopy,
+                Substitute.For<IDestinationRetentionService>(),
                 options,
                 healthStore,
                 clock,
@@ -64,11 +65,48 @@ public sealed class ReconciliationServiceTests
             var snapshot = StatusCommand.TryReadRuntimeHealthSnapshot(healthPath);
             var profile = Assert.Single(snapshot!.Profiles);
             Assert.Equal(1, profile.Reconciliation.RunCount);
+            Assert.False(profile.Reconciliation.IsRunning);
+            Assert.Null(profile.Reconciliation.CurrentTrigger);
             Assert.Equal("Overflow", profile.Reconciliation.LastTrigger);
             Assert.Equal(3, profile.Reconciliation.LastExitCode);
             Assert.Equal("Files copied + extras detected", profile.Reconciliation.LastExitDescription);
             Assert.Equal(2, profile.Reconciliation.LastSummary!.FilesCopied);
             Assert.Equal(1, profile.Reconciliation.LastSummary!.FilesExtras);
+            var lastActivity = profile.RecentActivities.First();
+            Assert.Equal("reconcile", lastActivity.Kind);
+            Assert.Contains("Trigger: Overflow", lastActivity.Details);
+            Assert.Contains("Duration:", lastActivity.Details);
+            Assert.Contains("Files copied: 2, failed: 0, extras: 1", lastActivity.Details);
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RecordReconciliationStarted_Marks_Reconciliation_As_Running()
+    {
+        var clock = new FakeClock();
+        var tempDir = Directory.CreateTempSubdirectory();
+
+        try
+        {
+            var healthPath = Path.Combine(tempDir.FullName, "foldersync-health.json");
+            var healthStore = new RuntimeHealthStore(healthPath, clock, new FakeAlertNotifier(), NullLogger<RuntimeHealthStore>.Instance);
+            healthStore.Initialize(["alpha"]);
+
+            healthStore.RecordReconciliationStarted("alpha", "Dashboard");
+
+            var snapshot = StatusCommand.TryReadRuntimeHealthSnapshot(healthPath);
+            var profile = Assert.Single(snapshot!.Profiles);
+            Assert.True(profile.Reconciliation.IsRunning);
+            Assert.Equal("Dashboard", profile.Reconciliation.CurrentTrigger);
+            Assert.Equal("Dashboard", profile.Reconciliation.LastTrigger);
+            Assert.NotNull(profile.Reconciliation.LastStartedAtUtc);
+            var lastActivity = profile.RecentActivities.First();
+            Assert.Equal("reconcile", lastActivity.Kind);
+            Assert.Equal("Trigger: Dashboard", lastActivity.Details);
         }
         finally
         {
@@ -115,6 +153,7 @@ public sealed class ReconciliationServiceTests
             var service = new ReconciliationService(
                 "alpha",
                 robocopy,
+                Substitute.For<IDestinationRetentionService>(),
                 options,
                 healthStore,
                 clock,
@@ -129,6 +168,54 @@ public sealed class ReconciliationServiceTests
 
             Assert.Equal(1, maxConcurrency);
             await robocopy.Received(2).ReconcileAsync(Arg.Any<CancellationToken>());
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RunReconciliationAsync_AppliesDestinationRetention_AfterSuccessfulReconcile()
+    {
+        var clock = new FakeClock();
+        var tempDir = Directory.CreateTempSubdirectory();
+
+        try
+        {
+            var healthPath = Path.Combine(tempDir.FullName, "foldersync-health.json");
+            var healthStore = new RuntimeHealthStore(healthPath, clock, new FakeAlertNotifier(), NullLogger<RuntimeHealthStore>.Instance);
+            healthStore.Initialize(["alpha"]);
+            healthStore.RecordServiceStarted();
+            healthStore.RecordProfileState("alpha", "Running");
+
+            var robocopy = Substitute.For<IRobocopyService>();
+            robocopy.ReconcileAsync(Arg.Any<CancellationToken>())
+                .Returns(new RobocopyResult(true, 1, string.Empty, string.Empty, "Files copied", null));
+
+            var retention = Substitute.For<IDestinationRetentionService>();
+
+            var options = TestOptions.Create(
+                "C:\\Source",
+                "C:\\Dest",
+                o =>
+                {
+                    o.Reconciliation.Enabled = true;
+                    o.Reconciliation.UseRobocopy = true;
+                });
+
+            var service = new ReconciliationService(
+                "alpha",
+                robocopy,
+                retention,
+                options,
+                healthStore,
+                clock,
+                NullLogger<ReconciliationService>.Instance);
+
+            await service.RunReconciliationAsync("Periodic", TestContext.Current.CancellationToken);
+
+            await retention.Received(1).ApplyAsync(RetentionExecutionTrigger.Reconciliation, Arg.Any<CancellationToken>());
         }
         finally
         {

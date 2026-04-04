@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using FolderSync.Infrastructure;
 using FolderSync.Models;
+using Microsoft.Extensions.Configuration;
 
 namespace FolderSync.Services;
 
@@ -25,23 +26,31 @@ public sealed class RuntimeControlStore : IRuntimeControlStore
     };
 
     private readonly IClock _clock;
+    private readonly TimeSpan? _staleReconcileRequestThreshold;
 
-    public RuntimeControlStore(IClock clock)
-        : this(Path.Combine(Environment.CurrentDirectory, "foldersync-control.json"), clock)
+    public RuntimeControlStore(IClock clock, TimeSpan? staleReconcileRequestThreshold = null)
+        : this(Path.Combine(Environment.CurrentDirectory, "foldersync-control.json"), clock, staleReconcileRequestThreshold)
     {
     }
 
-    internal RuntimeControlStore(string controlPath, IClock clock)
+    public RuntimeControlStore(string controlPath, IClock clock, TimeSpan? staleReconcileRequestThreshold = null)
     {
         ControlPath = controlPath;
         _clock = clock;
+        _staleReconcileRequestThreshold = staleReconcileRequestThreshold ?? TimeSpan.FromHours(24);
     }
 
     public string ControlPath { get; }
 
     public RuntimeControlSnapshot Read()
     {
-        return WithControlLock(ReadUnlocked);
+        return WithControlLock(() =>
+        {
+            var snapshot = ReadUnlocked();
+            if (PruneStaleReconcileRequestsUnlocked(snapshot))
+                PersistUnlocked(snapshot);
+            return snapshot;
+        });
     }
 
     public void SetPaused(bool paused, string? reason = null)
@@ -49,6 +58,7 @@ public sealed class RuntimeControlStore : IRuntimeControlStore
         WithControlLock(() =>
         {
             var snapshot = ReadUnlocked();
+            PruneStaleReconcileRequestsUnlocked(snapshot);
             snapshot.IsPaused = paused;
             snapshot.Reason = paused ? reason : null;
             snapshot.ChangedAtUtc = _clock.UtcNow;
@@ -65,6 +75,7 @@ public sealed class RuntimeControlStore : IRuntimeControlStore
         WithControlLock(() =>
         {
             var snapshot = ReadUnlocked();
+            PruneStaleReconcileRequestsUnlocked(snapshot);
             var profile = snapshot.Profiles.FirstOrDefault(existing =>
                 string.Equals(existing.Name, profileName, StringComparison.OrdinalIgnoreCase));
 
@@ -93,13 +104,8 @@ public sealed class RuntimeControlStore : IRuntimeControlStore
         WithControlLock(() =>
         {
             var snapshot = ReadUnlocked();
-            snapshot.ReconcileRequests.Add(new ReconcileRequestSnapshot
-            {
-                Id = Guid.NewGuid().ToString("N"),
-                ProfileName = profileName,
-                Trigger = string.IsNullOrWhiteSpace(trigger) ? "Control" : trigger,
-                RequestedAtUtc = _clock.UtcNow
-            });
+            PruneStaleReconcileRequestsUnlocked(snapshot);
+            EnqueueReconcileRequestUnlocked(snapshot, profileName, trigger, _clock.UtcNow);
             PersistUnlocked(snapshot);
             return 0;
         });
@@ -120,16 +126,11 @@ public sealed class RuntimeControlStore : IRuntimeControlStore
         WithControlLock(() =>
         {
             var snapshot = ReadUnlocked();
+            PruneStaleReconcileRequestsUnlocked(snapshot);
             var requestedAtUtc = _clock.UtcNow;
             foreach (var profileName in names)
             {
-                snapshot.ReconcileRequests.Add(new ReconcileRequestSnapshot
-                {
-                    Id = Guid.NewGuid().ToString("N"),
-                    ProfileName = profileName,
-                    Trigger = string.IsNullOrWhiteSpace(trigger) ? "Control" : trigger,
-                    RequestedAtUtc = requestedAtUtc
-                });
+                EnqueueReconcileRequestUnlocked(snapshot, profileName, trigger, requestedAtUtc);
             }
 
             PersistUnlocked(snapshot);
@@ -145,6 +146,7 @@ public sealed class RuntimeControlStore : IRuntimeControlStore
         return WithControlLock(() =>
         {
             var snapshot = ReadUnlocked();
+            PruneStaleReconcileRequestsUnlocked(snapshot);
             var request = snapshot.ReconcileRequests
                 .OrderBy(item => item.RequestedAtUtc)
                 .FirstOrDefault(item => string.Equals(item.ProfileName, profileName, StringComparison.OrdinalIgnoreCase));
@@ -167,6 +169,74 @@ public sealed class RuntimeControlStore : IRuntimeControlStore
         };
         snapshot.Profiles.Add(profile);
         return profile;
+    }
+
+    private static void EnqueueReconcileRequestUnlocked(
+        RuntimeControlSnapshot snapshot,
+        string profileName,
+        string trigger,
+        DateTimeOffset requestedAtUtc)
+    {
+        if (snapshot.ReconcileRequests.Any(existing =>
+                string.Equals(existing.ProfileName, profileName, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        snapshot.ReconcileRequests.Add(new ReconcileRequestSnapshot
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            ProfileName = profileName,
+            Trigger = string.IsNullOrWhiteSpace(trigger) ? "Control" : trigger,
+            RequestedAtUtc = requestedAtUtc
+        });
+    }
+
+    private bool PruneStaleReconcileRequestsUnlocked(RuntimeControlSnapshot snapshot)
+    {
+        if (_staleReconcileRequestThreshold is null || _staleReconcileRequestThreshold <= TimeSpan.Zero)
+            return false;
+
+        var cutoff = _clock.UtcNow - _staleReconcileRequestThreshold.Value;
+        var removed = snapshot.ReconcileRequests.RemoveAll(request => request.RequestedAtUtc < cutoff);
+        return removed > 0;
+    }
+
+    public static TimeSpan? ResolveStaleReconcileRequestThreshold(string? configPath)
+    {
+        try
+        {
+            var builder = new ConfigurationBuilder();
+
+            var baseDirectory = !string.IsNullOrWhiteSpace(configPath)
+                ? Path.GetDirectoryName(Path.GetFullPath(configPath))
+                : AppContext.BaseDirectory;
+
+            if (!string.IsNullOrWhiteSpace(baseDirectory))
+                builder.SetBasePath(baseDirectory);
+
+            builder.AddJsonFile("appsettings.example.json", optional: true);
+
+            if (!string.IsNullOrWhiteSpace(configPath))
+            {
+                builder.AddJsonFile(Path.GetFullPath(configPath), optional: true);
+            }
+            else
+            {
+                builder.AddJsonFile("appsettings.json", optional: true);
+            }
+
+            var configuration = builder.Build();
+            var hours = configuration.GetValue<int?>($"{FolderSyncConfig.SectionName}:Control:StaleReconcileRequestHours");
+            if (hours is null)
+                return TimeSpan.FromHours(24);
+
+            return hours <= 0 ? TimeSpan.Zero : TimeSpan.FromHours(hours.Value);
+        }
+        catch
+        {
+            return TimeSpan.FromHours(24);
+        }
     }
 
     private RuntimeControlSnapshot ReadUnlocked()

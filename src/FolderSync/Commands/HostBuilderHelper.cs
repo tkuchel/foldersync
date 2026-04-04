@@ -2,6 +2,7 @@ using FolderSync.Infrastructure;
 using FolderSync.Models;
 using FolderSync.Services;
 using Microsoft.Extensions.Hosting.WindowsServices;
+using Microsoft.Extensions.Options;
 using Serilog;
 
 namespace FolderSync.Commands;
@@ -75,7 +76,15 @@ public static class HostBuilderHelper
         builder.Services.AddSingleton<IFileHasher, Sha256FileHasher>();
         builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
         builder.Services.AddSingleton<IPathSafetyService, PathSafetyService>();
-        builder.Services.AddSingleton<IRuntimeControlStore, RuntimeControlStore>();
+        builder.Services.AddSingleton<IRuntimeControlStore>(sp =>
+        {
+            var clock = sp.GetRequiredService<IClock>();
+            var config = sp.GetRequiredService<IOptions<FolderSyncConfig>>().Value;
+            var threshold = config.Control.StaleReconcileRequestHours <= 0
+                ? TimeSpan.Zero
+                : TimeSpan.FromHours(config.Control.StaleReconcileRequestHours);
+            return new RuntimeControlStore(clock, threshold);
+        });
         builder.Services.AddSingleton<IRuntimeHealthStore, RuntimeHealthStore>();
 
         // Hosted service

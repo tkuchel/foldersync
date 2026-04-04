@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Validate Release Tag Matches Project Version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $propsPath = "Directory.Build.props"
+          if (-not (Test-Path $propsPath)) {
+            throw "Could not find $propsPath."
+          }
+
+          [xml]$props = Get-Content $propsPath
+          $declaredVersion = $props.Project.PropertyGroup.Version
+          if ([string]::IsNullOrWhiteSpace($declaredVersion)) {
+            throw "Directory.Build.props does not define a Version property."
+          }
+
+          $tag = "${{ github.ref_name }}"
+          $expectedTag = "v$declaredVersion"
+
+          if ($tag -ne $expectedTag) {
+            throw "Release tag '$tag' does not match declared version '$declaredVersion' in Directory.Build.props. Expected tag: '$expectedTag'."
+          }
+
+      - name: Restore
+        run: dotnet restore FolderSync.slnx
+
+      - name: Build
+        run: dotnet build FolderSync.slnx --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test FolderSync.slnx --no-build --configuration Release --nologo
+
+      - name: Publish Service
+        run: dotnet publish src/FolderSync/FolderSync.csproj --no-build --configuration Release -o ${{ runner.temp }}\foldersync-service
+
+      - name: Publish Tray
+        run: dotnet publish src/FolderSync.Tray/FolderSync.Tray.csproj --no-build --configuration Release -o ${{ runner.temp }}\foldersync-tray
+
+      - name: Package Release Assets
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $serviceZip = Join-Path $env:RUNNER_TEMP "foldersync-service-$tag.zip"
+          $trayZip = Join-Path $env:RUNNER_TEMP "foldersync-tray-$tag.zip"
+          Compress-Archive -Path "${{ runner.temp }}\foldersync-service\*" -DestinationPath $serviceZip -Force
+          Compress-Archive -Path "${{ runner.temp }}\foldersync-tray\*" -DestinationPath $trayZip -Force
+          "SERVICE_ZIP=$serviceZip" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "TRAY_ZIP=$trayZip" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Validate Release Assets
+        shell: pwsh
+        run: |
+          .\scripts\Validate-ReleaseArtifacts.ps1 -ServiceZip "${{ env.SERVICE_ZIP }}" -TrayZip "${{ env.TRAY_ZIP }}"
+
+      - name: Smoke Test Packaged Binaries
+        shell: pwsh
+        run: |
+          .\scripts\Smoke-Test-ReleaseArtifacts.ps1 -ServiceZip "${{ env.SERVICE_ZIP }}" -TrayZip "${{ env.TRAY_ZIP }}"
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: foldersync-release-${{ github.ref_name }}
+          path: |
+            ${{ env.SERVICE_ZIP }}
+            ${{ env.TRAY_ZIP }}
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            ${{ env.SERVICE_ZIP }}
+            ${{ env.TRAY_ZIP }}

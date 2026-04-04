@@ -4,18 +4,15 @@ This is the short backlog for the next improvement pass after the current audit 
 
 ## High Priority
 
-- Distinguish per-profile reconcile states more explicitly across operator surfaces: `queued`, `running`, `idle`, and `service unavailable`.
-- Add integration coverage for watcher overflow recovery under sustained channel pressure.
-- Add integration coverage for cross-process operator flows, especially pause/resume plus queued reconcile interactions against the persisted control file.
+- Consider adding a direct link from the tray troubleshooting dialog into the dashboard troubleshooting panel.
 
 ## Medium Priority
 
-- Deduplicate or coalesce repeated queued reconcile requests for the same profile when an operator clicks multiple times in quick succession.
-- Surface the currently running reconciliation trigger in the dashboard and tray, not just historical completion data.
-- Add a tagged-release workflow that produces service and tray artifacts from GitHub Actions.
+- Consider making stale queued-request pruning configurable instead of using a fixed 24-hour threshold.
+- Consider adding a `--strict` or `--skip-artifact-checks` mode to `validate-deploy` for faster local rehearsals versus full release-style validation.
 
 ## Nice To Have
 
 - Split the embedded dashboard HTML/JS/CSS into easier-to-test components or embedded resource files if the UI keeps growing.
-- Add a small operator troubleshooting guide for common states like watcher overflow, service unavailable, and repeated failures.
-- Consider a dry-run validation command for local deployment that exercises publish + config validation without touching the installed service.
+- Add a simple retention or cleanup policy for generated local artifacts and old release validation outputs.
+- Add a release verification smoke-test script that exercises install-time expectations beyond zip contents, such as command help or config validation.

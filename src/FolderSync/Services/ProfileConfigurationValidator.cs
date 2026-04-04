@@ -85,6 +85,7 @@ public static class ProfileConfigurationValidator
 
         ValidateDeletionSettings(profile, validationOptions, result, normalizedDest);
         ValidateReconciliationSettings(profile, validationOptions, result);
+        ValidateRetentionSettings(profile, result);
     }
 
     private static void ValidateCrossProfileRelationships(
@@ -247,6 +248,34 @@ public static class ProfileConfigurationValidator
         {
             result.AddWarning(
                 $"[{profile.Name}] RobocopyOptions includes backup-mode copying (/B or /ZB). This may access files with elevated privileges.");
+        }
+    }
+
+    private static void ValidateRetentionSettings(ResolvedProfile profile, ProfileValidationResult result)
+    {
+        var retention = profile.Options.Retention;
+        if (!retention.Enabled)
+            return;
+
+        if (retention.KeepNewestCount <= 0)
+            result.AddError($"[{profile.Name}] Retention requires KeepNewestCount to be greater than 0.");
+
+        if (retention.MinAgeHours < 0)
+            result.AddError($"[{profile.Name}] Retention MinAgeHours cannot be negative.");
+
+        if (string.IsNullOrWhiteSpace(retention.SearchPattern))
+            result.AddError($"[{profile.Name}] Retention requires a non-empty SearchPattern.");
+
+        if (!string.IsNullOrWhiteSpace(retention.RelativePath))
+        {
+            var destinationRoot = NormalizePath(profile.Options.DestinationPath);
+            var retentionRoot = NormalizePath(Path.Combine(destinationRoot, retention.RelativePath));
+
+            if (!string.Equals(retentionRoot, destinationRoot, StringComparison.OrdinalIgnoreCase) &&
+                !IsUnderRoot(retentionRoot, destinationRoot))
+            {
+                result.AddError($"[{profile.Name}] Retention RelativePath must stay within the destination root.");
+            }
         }
     }
 

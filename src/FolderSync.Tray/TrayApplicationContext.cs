@@ -5,7 +5,9 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using FolderSync.Infrastructure;
 using FolderSync.Models;
+using FolderSync.Services;
 using Microsoft.Win32;
 
 namespace FolderSync.Tray;
@@ -14,6 +16,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 {
     private const string ServiceName = "FolderSync";
     private const string DashboardUrl = "http://127.0.0.1:8941/";
+    private const string DashboardTroubleshootingUrl = "http://127.0.0.1:8941/?troubleshooting=1";
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string StartupValueName = "FolderSyncTray";
 
@@ -25,6 +28,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _resumeAllItem;
     private readonly ToolStripMenuItem _reconcileAllItem;
     private readonly ToolStripMenuItem _openDashboardItem;
+    private readonly ToolStripMenuItem _troubleshootingItem;
     private readonly ToolStripMenuItem _openInstallItem;
     private readonly ToolStripMenuItem _startWithWindowsItem;
     private readonly ToolStripMenuItem _restartElevatedItem;
@@ -52,6 +56,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _resumeAllItem = new ToolStripMenuItem("Resume all", null, (_, _) => ResumeAll());
         _reconcileAllItem = new ToolStripMenuItem("Reconcile all", null, (_, _) => ReconcileAll());
         _openDashboardItem = new ToolStripMenuItem("Open dashboard", null, async (_, _) => await OpenDashboardAsync());
+        _troubleshootingItem = new ToolStripMenuItem("Troubleshooting tips", null, async (_, _) => await ShowTroubleshootingTipsAsync());
         _openInstallItem = new ToolStripMenuItem("Open install folder", null, (_, _) => OpenInstallFolder());
         _startWithWindowsItem = new ToolStripMenuItem("Start with Windows", null, (_, _) => ToggleStartWithWindows())
         {
@@ -66,6 +71,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _statusItem,
             new ToolStripSeparator(),
             _openDashboardItem,
+            _troubleshootingItem,
             _openInstallItem,
             new ToolStripSeparator(),
             _pauseAllItem,
@@ -144,8 +150,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
         var overallState = _healthSnapshot?.ServiceState ?? "Unknown";
         var pausedText = _controlSnapshot?.IsPaused is true ? $"Paused ({_controlSnapshot.Reason ?? "no reason"})" : overallState;
         var pendingRequestCount = GetPendingReconcileRequests().Count;
+        var runningCount = _healthSnapshot?.Profiles.Count(profile => profile.Reconciliation.IsRunning) ?? 0;
         var queueSuffix = pendingRequestCount > 0 ? $" | queued reconciles: {pendingRequestCount}" : string.Empty;
-        _statusItem.Text = $"FolderSync: {pausedText}{queueSuffix}";
+        var runningSuffix = runningCount > 0 ? $" | running reconciles: {runningCount}" : string.Empty;
+        _statusItem.Text = $"FolderSync: {pausedText}{runningSuffix}{queueSuffix}";
         _startWithWindowsItem.Checked = IsStartWithWindowsEnabled();
         _restartElevatedItem.Visible = !IsProcessElevated();
 
@@ -163,7 +171,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         _pauseAllItem.Enabled = _controlSnapshot?.IsPaused is not true;
         _resumeAllItem.Enabled = _controlSnapshot?.IsPaused is true || (_controlSnapshot?.Profiles.Count ?? 0) > 0;
-        _reconcileAllItem.Enabled = !string.IsNullOrWhiteSpace(_executablePath);
+        _reconcileAllItem.Enabled = IsServiceAvailableForReconcile();
         _openInstallItem.Enabled = Directory.Exists(_installDirectory);
         _startWithWindowsItem.Enabled = !string.IsNullOrWhiteSpace(GetTrayExecutablePath());
 
@@ -201,17 +209,14 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private ToolStripMenuItem BuildProfileMenu(ProfileHealthSnapshot profile)
     {
         var pendingRequests = GetPendingReconcileRequests(profile.Name);
-        var stateLabel = profile.IsPaused
-            ? $"Paused: {profile.PauseReason ?? "operator"}"
-            : pendingRequests.Count > 0
-                ? $"Queued reconcile ({pendingRequests.Count})"
-                : profile.AlertMessage ?? profile.State;
+        var stateLabel = GetProfileOperatorState(profile, pendingRequests);
 
         var root = new ToolStripMenuItem(profile.Name);
         root.DropDownItems.Add(new ToolStripMenuItem($"Status: {stateLabel}") { Enabled = false });
         root.DropDownItems.Add(new ToolStripMenuItem($"Processed: {profile.ProcessedCount} | Failed: {profile.FailedCount}") { Enabled = false });
         root.DropDownItems.Add(new ToolStripMenuItem($"Overflows: {profile.WatcherOverflowCount}") { Enabled = false });
         root.DropDownItems.Add(new ToolStripMenuItem($"Queued reconciles: {pendingRequests.Count}") { Enabled = false });
+        root.DropDownItems.Add(new ToolStripMenuItem($"Running reconcile: {FormatRunningReconciliation(profile)}") { Enabled = false });
         root.DropDownItems.Add(new ToolStripMenuItem($"Last sync: {FormatTimestamp(profile.LastSuccessfulSyncUtc)}") { Enabled = false });
         root.DropDownItems.Add(new ToolStripMenuItem($"Last reconcile: {SummarizeReconciliation(profile)}") { Enabled = false });
         root.DropDownItems.Add(new ToolStripSeparator());
@@ -226,8 +231,16 @@ internal sealed class TrayApplicationContext : ApplicationContext
         });
         root.DropDownItems.Add(new ToolStripMenuItem("Reconcile now", null, (_, _) => ReconcileProfile(profile.Name))
         {
-            Enabled = !string.IsNullOrWhiteSpace(_executablePath)
+            Enabled = IsServiceAvailableForReconcile()
         });
+        if (pendingRequests.Count > 0)
+        {
+            root.DropDownItems.Add(new ToolStripMenuItem("Queued requests are consumed by the running service") { Enabled = false });
+        }
+        if (!IsServiceAvailableForReconcile())
+        {
+            root.DropDownItems.Add(new ToolStripMenuItem("Reconcile requires the running FolderSync service") { Enabled = false });
+        }
 
         return root;
     }
@@ -321,6 +334,38 @@ internal sealed class TrayApplicationContext : ApplicationContext
         WriteControl(store => SetPaused(store, true, "Paused by tray app"), "FolderSync paused");
     }
 
+    private async Task ShowTroubleshootingTipsAsync()
+    {
+        var result = MessageBox.Show(
+            "Queued means the request was accepted into foldersync-control.json and is waiting for the running service to consume it.\n\n" +
+            "Running means the service is actively reconciling that profile.\n\n" +
+            "Service unavailable means reconcile controls are disabled because the Windows service is stopped or unavailable.\n\n" +
+            "Use 'foldersync status --verbose' for the clearest operator view.\n\n" +
+            "Open the dashboard troubleshooting panel now?",
+            "FolderSync Troubleshooting",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Information,
+            MessageBoxDefaultButton.Button1);
+
+        if (result == DialogResult.Yes)
+        {
+            try
+            {
+                if (!await IsDashboardResponsiveAsync())
+                    StartDashboardProcess();
+
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = DashboardTroubleshootingUrl,
+                    UseShellExecute = true
+                });
+            }
+            catch
+            {
+            }
+        }
+    }
+
     private void ResumeAll()
     {
         WriteControl(store =>
@@ -367,39 +412,18 @@ internal sealed class TrayApplicationContext : ApplicationContext
             }
 
             var controlPath = GetPath("foldersync-control.json");
-            WithControlFileLock(controlPath, () =>
-            {
-                var snapshot = TryReadJson<RuntimeControlSnapshot>(controlPath) ?? new RuntimeControlSnapshot();
-                if (string.IsNullOrWhiteSpace(profileName))
-                {
-                    foreach (var targetProfile in GetKnownProfiles())
-                    {
-                        snapshot.ReconcileRequests.Add(new ReconcileRequestSnapshot
-                        {
-                            Id = Guid.NewGuid().ToString("N"),
-                            ProfileName = targetProfile,
-                            Trigger = "Tray",
-                            RequestedAtUtc = DateTimeOffset.UtcNow
-                        });
-                    }
-                }
-                else
-                {
-                    snapshot.ReconcileRequests.Add(new ReconcileRequestSnapshot
-                    {
-                        Id = Guid.NewGuid().ToString("N"),
-                        ProfileName = profileName,
-                        Trigger = "Tray",
-                        RequestedAtUtc = DateTimeOffset.UtcNow
-                    });
-                }
-
-                PersistJson(controlPath, snapshot);
-            });
+            var controlStore = new RuntimeControlStore(
+                controlPath,
+                new SystemClock(),
+                RuntimeControlStore.ResolveStaleReconcileRequestThreshold(GetPath("appsettings.json")));
+            if (string.IsNullOrWhiteSpace(profileName))
+                controlStore.EnqueueReconcileRequests(GetKnownProfiles(), "Tray");
+            else
+                controlStore.EnqueueReconcileRequest(profileName, "Tray");
 
             RefreshState(showErrors: false);
 
-            ShowBalloon("FolderSync Tray", string.IsNullOrWhiteSpace(profileName) ? "Started reconciliation for all profiles." : $"Started reconciliation for {profileName}.", ToolTipIcon.Info);
+            ShowBalloon("FolderSync Tray", string.IsNullOrWhiteSpace(profileName) ? "Queued reconciliation for all profiles." : $"Queued reconciliation for {profileName}.", ToolTipIcon.Info);
         }
         catch (Exception ex)
         {
@@ -602,9 +626,16 @@ internal sealed class TrayApplicationContext : ApplicationContext
         if (_controlSnapshot?.IsPaused is true)
             return $"FolderSync: paused ({_controlSnapshot.Reason ?? "operator"})";
 
+        var runningCount = _healthSnapshot?.Profiles.Count(item => item.Reconciliation.IsRunning) ?? 0;
+        if (runningCount > 0)
+            return $"FolderSync: {runningCount} reconcile running";
+
         var pendingRequestCount = GetPendingReconcileRequests().Count;
         if (pendingRequestCount > 0)
-            return $"FolderSync: {pendingRequestCount} reconcile queued";
+            return $"FolderSync: {pendingRequestCount} reconcile queued by service";
+
+        if (!IsServiceAvailableForReconcile())
+            return "FolderSync: start service for reconcile controls";
 
         var profile = _healthSnapshot?.Profiles
             .Where(item => !string.IsNullOrWhiteSpace(item.AlertMessage))
@@ -683,11 +714,22 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private static string SummarizeReconciliation(ProfileHealthSnapshot profile)
     {
+        if (profile.Reconciliation.IsRunning)
+        {
+            var trigger = profile.Reconciliation.CurrentTrigger ?? profile.Reconciliation.LastTrigger ?? "unknown";
+            return $"Running ({trigger})";
+        }
+
         if (profile.RecentActivities.FirstOrDefault(activity => string.Equals(activity.Kind, "reconcile", StringComparison.OrdinalIgnoreCase)) is { } activity)
         {
-            var detail = string.IsNullOrWhiteSpace(activity.Details)
+            var detailLine = string.IsNullOrWhiteSpace(activity.Details)
                 ? string.Empty
-                : $" - {Truncate(activity.Details, 28)}";
+                : activity.Details
+                    .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .FirstOrDefault() ?? string.Empty;
+            var detail = string.IsNullOrWhiteSpace(detailLine)
+                ? string.Empty
+                : $" - {Truncate(detailLine, 28)}";
             return $"{Truncate(activity.Summary, 32)}{detail}";
         }
 
@@ -784,7 +826,46 @@ internal sealed class TrayApplicationContext : ApplicationContext
         return requests
             .Where(request => string.Equals(request.ProfileName, profileName, StringComparison.OrdinalIgnoreCase))
             .OrderBy(request => request.RequestedAtUtc)
-            .ToList();
+                .ToList();
+    }
+
+    private bool IsServiceAvailableForReconcile()
+    {
+        return !string.IsNullOrWhiteSpace(_executablePath) &&
+            (string.Equals(_healthSnapshot?.ServiceState, "Running", StringComparison.OrdinalIgnoreCase) ||
+             _controlSnapshot?.IsPaused is true);
+    }
+
+    private string GetProfileOperatorState(ProfileHealthSnapshot profile, List<ReconcileRequestSnapshot> pendingRequests)
+    {
+        if (!IsServiceAvailableForReconcile())
+            return "Service unavailable";
+
+        if (profile.IsPaused)
+            return $"Paused: {profile.PauseReason ?? "operator"}";
+
+        if (profile.Reconciliation.IsRunning)
+        {
+            var trigger = profile.Reconciliation.CurrentTrigger ?? profile.Reconciliation.LastTrigger ?? "unknown";
+            return pendingRequests.Count > 0
+                ? $"Running reconcile ({trigger}) + {pendingRequests.Count} queued"
+                : $"Running reconcile ({trigger})";
+        }
+
+        if (pendingRequests.Count > 0)
+            return $"Queued reconcile ({pendingRequests.Count})";
+
+        return profile.AlertMessage ?? "Idle";
+    }
+
+    private static string FormatRunningReconciliation(ProfileHealthSnapshot profile)
+    {
+        if (!profile.Reconciliation.IsRunning)
+            return "No";
+
+        var trigger = profile.Reconciliation.CurrentTrigger ?? profile.Reconciliation.LastTrigger ?? "unknown";
+        var started = profile.Reconciliation.LastStartedAtUtc?.ToLocalTime().ToString("g");
+        return started is null ? trigger : $"{trigger} since {started}";
     }
 
     private void UpdateTrayIcon(string state)

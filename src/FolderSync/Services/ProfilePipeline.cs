@@ -64,11 +64,12 @@ public sealed class ProfilePipeline : IDisposable
         var retryService = new RetryService(opts, loggerFactory.CreateLogger<RetryService>());
         var fileOperations = new FileOperationService(retryService, opts, loggerFactory.CreateLogger<FileOperationService>());
         var robocopyService = new RobocopyService(processRunner, opts, loggerFactory.CreateLogger<RobocopyService>());
+        var retentionService = new DestinationRetentionService(profileName, opts, fileOperations, loggerFactory.CreateLogger<DestinationRetentionService>());
 
         _watcher = new WatcherService(profileName, opts, pathMapping, pathSafety, healthStore, clock, loggerFactory.CreateLogger<WatcherService>());
         _eventBuffer = new EventBufferService(pathMapping, clock, opts, loggerFactory.CreateLogger<EventBufferService>());
-        _syncProcessor = new SyncProcessor(stabilityChecker, fileComparison, conflictResolver, fileOperations, pathMapping, pathSafety, loggerFactory.CreateLogger<SyncProcessor>());
-        _reconciliation = new ReconciliationService(profileName, robocopyService, opts, healthStore, clock, loggerFactory.CreateLogger<ReconciliationService>());
+        _syncProcessor = new SyncProcessor(stabilityChecker, fileComparison, conflictResolver, fileOperations, pathMapping, pathSafety, retentionService, loggerFactory.CreateLogger<SyncProcessor>());
+        _reconciliation = new ReconciliationService(profileName, robocopyService, retentionService, opts, healthStore, clock, loggerFactory.CreateLogger<ReconciliationService>());
     }
 
     public async Task StartAsync(CancellationToken stoppingToken)

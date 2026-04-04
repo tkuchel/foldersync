@@ -16,6 +16,7 @@ It supports:
 foldersync run
 foldersync reconcile
 foldersync validate-config
+foldersync validate-deploy
 foldersync install
 foldersync uninstall
 foldersync status
@@ -110,7 +111,10 @@ foldersync status --verbose
 foldersync status --json
 foldersync health
 foldersync health --json
+foldersync validate-deploy --target-dir C:\FolderSync --skip-tests
 ```
+
+A practical operator reference for common runtime states lives in [TROUBLESHOOTING.md](C:/Users/terre/cowork-workspace/foldersync/TROUBLESHOOTING.md).
 
 The running service also persists runtime health to `foldersync-health.json` in the install directory.
 Control state and queued operator requests are persisted separately in `foldersync-control.json`.
@@ -128,6 +132,52 @@ The control file includes:
 - global pause state and pause reason
 - per-profile pause state
 - queued reconcile requests waiting to be consumed by the running service
+
+Profiles can also apply optional destination-side retention for backup-style folders. When enabled, FolderSync keeps only the newest top-level destination directories that match a configured search pattern after a successful reconciliation run.
+
+Example:
+
+```json
+"Retention": {
+  "Enabled": true,
+  "KeepNewestCount": 5,
+  "ItemType": "Directories",
+  "RelativePath": "Nightly",
+  "Recursive": false,
+  "TriggerMode": "ReconciliationOnly",
+  "MinAgeHours": 24,
+  "SearchPattern": "backup-*",
+  "SortBy": "NameDescending"
+}
+```
+
+For nightly zip-style backups in a single destination folder, switch to file retention instead:
+
+```json
+"Retention": {
+  "Enabled": true,
+  "KeepNewestCount": 5,
+  "ItemType": "Files",
+  "RelativePath": "ZipBackups",
+  "Recursive": false,
+  "TriggerMode": "ReconciliationOnly",
+  "MinAgeHours": 24,
+  "SearchPattern": "backup-*.zip",
+  "SortBy": "NameDescending"
+}
+```
+
+Set `Recursive` to `true` if you want retention to search nested folders under the scoped path instead of only its top level.
+
+`TriggerMode` controls when retention runs:
+
+- `ReconciliationOnly`: only after a successful reconciliation run
+- `SyncOnly`: only after successful watcher-driven sync operations
+- `ReconciliationAndSync`: after both successful reconciliations and successful watcher-driven sync operations
+
+`MinAgeHours` adds a safety floor before pruning. For example, `24` means FolderSync will still protect the newest `N` items first, and then only prune older overflow items once they are at least 24 hours old.
+
+`RelativePath` is optional and is resolved under the profile destination. Retention applies to the matching files or directories inside that scoped folder and can either archive or delete older items based on the profile's existing `DeleteMode` settings.
 
 Optional alert notifications can be configured under `FolderSync:Notifications` with a webhook URL and cooldown.
 Supported notification providers are:
@@ -173,9 +223,13 @@ dotnet test FolderSync.slnx --nologo
 ## Releases
 
 - CI now smoke-tests `dotnet publish` for both the service and tray companion on Windows.
-- The current CI workflow validates build, tests, JSON report shape, and publishability, but it does not create tagged release artifacts yet.
+- Tagged pushes such as `v1.0.1` now run [release.yml](C:/Users/terre/cowork-workspace/foldersync/.github/workflows/release.yml), which builds, tests, publishes, zips, and attaches both service and tray artifacts to a GitHub release.
+- The release workflow validates that the pushed tag matches the `Version` declared in [Directory.Build.props](C:/Users/terre/cowork-workspace/foldersync/Directory.Build.props) before publishing artifacts.
+- The packaged zip files are also checked by [Validate-ReleaseArtifacts.ps1](C:/Users/terre/cowork-workspace/foldersync/scripts/Validate-ReleaseArtifacts.ps1) so missing executables or runtime files fail the release.
+- The packaged executables are smoke-tested by [Smoke-Test-ReleaseArtifacts.ps1](C:/Users/terre/cowork-workspace/foldersync/scripts/Smoke-Test-ReleaseArtifacts.ps1), which validates the published service binary against a temp config and runs the tray in a headless `--smoke-test` mode.
 - Local release validation should still include `dotnet test FolderSync.slnx --nologo` before tagging.
 - A short human release checklist lives in [RELEASE_CHECKLIST.md](C:/Users/terre/cowork-workspace/foldersync/RELEASE_CHECKLIST.md).
+- Operator troubleshooting guidance lives in [TROUBLESHOOTING.md](C:/Users/terre/cowork-workspace/foldersync/TROUBLESHOOTING.md).
 
 The repo ignores generated output like `bin/`, `obj/`, logs, IDE state, and local Codex/Claude workspace files.
 
@@ -212,6 +266,12 @@ For the installed service in `C:\FolderSync`, use:
 powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1
 ```
 
+For a no-touch deployment rehearsal that validates the live config, runs publish, and checks packaged artifacts without stopping or updating the service, use:
+
+```powershell
+dotnet run --project src\FolderSync -- validate-deploy --target-dir C:\FolderSync
+```
+
 This script:
 
 - runs tests by default
@@ -229,4 +289,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1 -WhatIf
 powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1 -SkipTests
 powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1 -NoRestart
 powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1 -SkipTray
+```
+
+Useful `validate-deploy` options:
+
+```powershell
+dotnet run --project src\FolderSync -- validate-deploy --target-dir C:\FolderSync --skip-tests
+dotnet run --project src\FolderSync -- validate-deploy --target-dir C:\FolderSync --skip-tray
+dotnet run --project src\FolderSync -- validate-deploy --target-dir C:\FolderSync --configuration Release
 ```

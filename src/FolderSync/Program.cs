@@ -12,6 +12,7 @@ rootCommand.Subcommands.Add(HealthCommand.Create());
 rootCommand.Subcommands.Add(DashboardCommand.Create());
 rootCommand.Subcommands.Add(ReconcileCommand.Create());
 rootCommand.Subcommands.Add(ValidateConfigCommand.Create());
+rootCommand.Subcommands.Add(ValidateDeployCommand.Create());
 
 // Default (no subcommand): run in service/console mode
 rootCommand.SetAction(async (parseResult, cancellationToken) =>

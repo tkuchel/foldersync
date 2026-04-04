@@ -70,6 +70,8 @@ public sealed class StatusCommandTests
                       "watcherOverflowCount": 0,
                       "reconciliation": {
                         "runCount": 3,
+                        "isRunning": true,
+                        "currentTrigger": "Dashboard",
                         "lastTrigger": "Overflow",
                         "lastSuccess": true,
                         "lastExitCode": 2
@@ -87,6 +89,8 @@ public sealed class StatusCommandTests
             Assert.Equal("alpha", profile.Name);
             Assert.Equal(9, profile.ProcessedCount);
             Assert.Equal(3, profile.Reconciliation.RunCount);
+            Assert.True(profile.Reconciliation.IsRunning);
+            Assert.Equal("Dashboard", profile.Reconciliation.CurrentTrigger);
             Assert.Equal("Overflow", profile.Reconciliation.LastTrigger);
             Assert.True(profile.Reconciliation.LastSuccess);
             Assert.Equal(2, profile.Reconciliation.LastExitCode);
@@ -140,13 +144,15 @@ public sealed class StatusCommandTests
                   "skippedCount": 2,
                   "failedCount": 1,
                   "watcherOverflowCount": 0,
-                  "reconciliation": {
-                    "runCount": 3,
-                    "lastTrigger": "Overflow",
-                    "lastSuccess": true,
-                    "lastExitCode": 2,
-                    "lastExitDescription": "Extra files or directories detected"
-                  }
+                    "reconciliation": {
+                      "runCount": 3,
+                      "isRunning": true,
+                      "currentTrigger": "Overflow",
+                      "lastTrigger": "Overflow",
+                      "lastSuccess": true,
+                      "lastExitCode": 2,
+                      "lastExitDescription": "Extra files or directories detected"
+                    }
                 }
               ]
             }
@@ -159,6 +165,8 @@ public sealed class StatusCommandTests
             Assert.Equal("alpha", Assert.Single(report.Profiles));
             Assert.NotNull(report.Runtime);
             Assert.Equal(3, report.Runtime!.Profiles[0].Reconciliation.RunCount);
+            Assert.True(report.Runtime.Profiles[0].Reconciliation.IsRunning);
+            Assert.Equal("Overflow", report.Runtime.Profiles[0].Reconciliation.CurrentTrigger);
             Assert.NotNull(report.RecentActivity);
             Assert.Contains("Reconciliation completed", report.RecentActivity!.LastReconcile);
             Assert.Contains("Synced docs\\file.txt", report.RecentActivity.LastSync);

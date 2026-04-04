@@ -49,6 +49,8 @@ public sealed class ProfileHealthSnapshot
 public sealed class ReconciliationHealthSnapshot
 {
     public long RunCount { get; set; }
+    public bool IsRunning { get; set; }
+    public string? CurrentTrigger { get; set; }
     public string? LastTrigger { get; set; }
     public DateTimeOffset? LastStartedAtUtc { get; set; }
     public DateTimeOffset? LastCompletedAtUtc { get; set; }

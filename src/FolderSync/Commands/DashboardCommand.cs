@@ -170,6 +170,11 @@ public static class DashboardCommand
         }
 
         var controlStore = new RuntimeControlStore(Path.Combine(installDir!, "foldersync-control.json"), new SystemClock());
+        var configPath = Path.Combine(installDir!, "appsettings.json");
+        controlStore = new RuntimeControlStore(
+            Path.Combine(installDir!, "foldersync-control.json"),
+            new SystemClock(),
+            RuntimeControlStore.ResolveStaleReconcileRequestThreshold(configPath));
 
         try
         {
@@ -249,7 +254,10 @@ public static class DashboardCommand
 
         try
         {
-            var controlStore = new RuntimeControlStore(Path.Combine(report.InstallDirectory!, "foldersync-control.json"), new SystemClock());
+            var controlStore = new RuntimeControlStore(
+                Path.Combine(report.InstallDirectory!, "foldersync-control.json"),
+                new SystemClock(),
+                RuntimeControlStore.ResolveStaleReconcileRequestThreshold(Path.Combine(report.InstallDirectory!, "appsettings.json")));
             if (!string.IsNullOrWhiteSpace(request.Profile))
             {
                 controlStore.EnqueueReconcileRequest(request.Profile, "Dashboard");
@@ -443,6 +451,9 @@ public static class DashboardCommand
     .toast.error { border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); color: var(--danger); background: var(--danger-bg); }
     .toast.success { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); color: var(--accent); background: var(--success-bg); }
     .error { color: var(--danger); }
+    .tips { margin-top: 16px; }
+    .tips summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+    .tips-body { margin-top: 12px; display:grid; gap:10px; color: var(--muted); }
     pre { white-space: pre-wrap; background: var(--subtle); border: 1px solid var(--border); border-radius: 12px; padding: 12px; font-size: .85rem; }
     @media (max-width: 720px) {
       .hero { align-items: start; }
@@ -463,6 +474,7 @@ public static class DashboardCommand
         </div>
       </div>
       <div class="hero-actions">
+        <button id="troubleshooting-toggle" class="secondary" type="button">Troubleshooting</button>
         <button id="theme-toggle" class="theme-toggle secondary" type="button">Dark mode</button>
         <div id="updated" class="pill">Loading…</div>
       </div>
@@ -499,6 +511,22 @@ public static class DashboardCommand
       <button id="pause-all">Pause all</button>
       <button id="resume-all" class="secondary">Resume all</button>
     </div>
+
+    <div class="card" id="operator-note-card" style="display:none; margin-top: 16px;">
+      <div class="label">Operator Note</div>
+      <div class="error" id="operator-note-text"></div>
+    </div>
+
+    <details class="card tips" id="troubleshooting-card" style="display:none;">
+      <summary>Quick troubleshooting guide</summary>
+      <div class="tips-body">
+        <div><strong>Queued</strong>: the request was accepted into the control file and is waiting for the running service to consume it.</div>
+        <div><strong>Running</strong>: the service is actively reconciling that profile; later requests can remain queued.</div>
+        <div><strong>Service unavailable</strong>: reconcile buttons are disabled because the running Windows service owns queued reconcile work.</div>
+        <div><strong>Watcher overflow</strong>: FolderSync requested reconciliation as a safety net because live file events exceeded buffer capacity.</div>
+        <div><strong>Fast checks</strong>: use <code>foldersync status --verbose</code> and <code>foldersync health --json</code> for the clearest picture.</div>
+      </div>
+    </details>
 
     <div class="profiles" id="profiles"></div>
     <div class="toast" id="action-toast"></div>
@@ -539,6 +567,11 @@ public static class DashboardCommand
       const profile = params.get('profile');
       if (profile) {
         document.getElementById('profile-filter').value = profile;
+      }
+      if (params.get('troubleshooting') === '1') {
+        const card = document.getElementById('troubleshooting-card');
+        card.style.display = 'block';
+        card.open = true;
       }
     }
 
@@ -600,6 +633,61 @@ public static class DashboardCommand
       return requests.filter(item => item.ProfileName === profileName);
     }
 
+    function getOperatorNote(data) {
+      const serviceAvailable = isServiceAvailable(data);
+      const totalPendingRequests = getPendingRequests(data).length;
+      if (!serviceAvailable) {
+        return 'Reconcile actions are disabled because the running FolderSync service owns queued reconcile requests. Start the Windows service to accept dashboard reconcile actions.';
+      }
+
+      if (totalPendingRequests > 0) {
+        return 'Queued reconciles are accepted by the running FolderSync service and executed in service order. A queued state means the request was recorded and is waiting for the service to consume it.';
+      }
+
+      return '';
+    }
+
+    function isServiceAvailable(data) {
+      return data.RawState === 'RUNNING' || data.Control?.IsPaused === true;
+    }
+
+    function getProfileOperatorState(data, profile, pendingRequests) {
+      if (!isServiceAvailable(data)) {
+        return {
+          status: 'Service unavailable',
+          subtitle: 'The FolderSync service is not currently accepting reconcile requests.'
+        };
+      }
+
+      if (profile.Reconciliation?.IsRunning) {
+        const trigger = profile.Reconciliation.CurrentTrigger || profile.Reconciliation.LastTrigger || 'unknown';
+        const started = profile.Reconciliation.LastStartedAtUtc
+          ? ` at ${new Date(profile.Reconciliation.LastStartedAtUtc).toLocaleString()}`
+          : '';
+        return {
+          status: `Running reconcile${pendingRequests.length > 0 ? ` (+${pendingRequests.length} queued)` : ''}`,
+          subtitle: `Running from ${trigger}${started}`
+        };
+      }
+
+      if (pendingRequests.length > 0) {
+        const lastQueued = pendingRequests[pendingRequests.length - 1];
+        return {
+          status: `Queued reconcile${pendingRequests.length > 1 ? ` (${pendingRequests.length})` : ''}`,
+          subtitle: `Queued by ${lastQueued.Trigger} at ${new Date(lastQueued.RequestedAtUtc).toLocaleString()}`
+        };
+      }
+
+      return {
+        status: profile.IsPaused
+          ? `Paused${profile.PauseReason ? `: ${profile.PauseReason}` : ''}`
+          : (profile.AlertMessage ? profile.AlertLevel : 'Idle'),
+        subtitle: profile.Reconciliation?.LastTrigger
+          ? `Last trigger: ${profile.Reconciliation.LastTrigger}`
+          : 'Watching for changes'
+      };
+    }
+
     async function refresh() {
       try {
         rememberExpandedPanels();
@@ -611,6 +699,12 @@ public static class DashboardCommand
         document.getElementById('profile-count').textContent = (data.Runtime?.Profiles || []).length;
         document.getElementById('queued-reconcile-count').textContent = getPendingRequests(data).length;
         document.getElementById('updated').textContent = data.Runtime?.UpdatedAtUtc ? `Updated ${new Date(data.Runtime.UpdatedAtUtc).toLocaleString()}` : 'No runtime snapshot';
+        const serviceAvailable = isServiceAvailable(data);
+        const operatorNoteValue = getOperatorNote(data);
+        const operatorNote = document.getElementById('operator-note-card');
+        const operatorNoteText = document.getElementById('operator-note-text');
+        operatorNote.style.display = operatorNoteValue ? 'block' : 'none';
+        operatorNoteText.textContent = operatorNoteValue;
 
         const host = document.getElementById('profiles');
         host.innerHTML = '';
@@ -620,22 +714,14 @@ public static class DashboardCommand
           div.className = 'profile';
           const pillClass = profileStatusClass(profile);
           const pendingRequests = getPendingRequests(data, profile.Name);
-          const profileStatus = pendingRequests.length > 0
-            ? `Queued reconcile${pendingRequests.length > 1 ? ` (${pendingRequests.length})` : ''}`
-            : profile.IsPaused
-              ? `Paused${profile.PauseReason ? `: ${profile.PauseReason}` : ''}`
-              : (profile.AlertMessage ? profile.AlertLevel : profile.State);
+          const operatorState = getProfileOperatorState(data, profile, pendingRequests);
+          const profileStatus = operatorState.status;
           const historyOpen = expandedProfiles.has(profile.Name) ? 'open' : '';
-          const lastQueued = pendingRequests.length > 0
-            ? pendingRequests[pendingRequests.length - 1]
-            : null;
           div.innerHTML = `
             <div class="profile-head">
               <div class="profile-title">
                 <strong>${profile.Name}</strong>
-                <div class="profile-subtitle">${pendingRequests.length > 0
-                  ? `Queued by ${lastQueued.Trigger} at ${new Date(lastQueued.RequestedAtUtc).toLocaleString()}`
-                  : (profile.Reconciliation?.LastTrigger ? `Last trigger: ${profile.Reconciliation.LastTrigger}` : 'Watching for changes')}</div>
+                <div class="profile-subtitle">${operatorState.subtitle}</div>
               </div>
               <span class="${pillClass}">${profileStatus}</span>
             </div>
@@ -646,12 +732,12 @@ public static class DashboardCommand
               <div class="stat"><div class="stat-label">Queued Reconciles</div><div class="stat-value">${pendingRequests.length}</div></div>
               <div class="stat"><div class="stat-label">Last Sync</div><div class="stat-value">${profile.LastSuccessfulSyncUtc ? new Date(profile.LastSuccessfulSyncUtc).toLocaleString() : 'n/a'}</div></div>
               <div class="stat"><div class="stat-label">Last Failure</div><div class="stat-value">${profile.LastFailure || 'n/a'}</div></div>
-              <div class="stat"><div class="stat-label">Reconcile</div><div class="stat-value">${profile.Reconciliation?.LastExitDescription || 'n/a'}</div></div>
+              <div class="stat"><div class="stat-label">Reconcile</div><div class="stat-value">${profile.Reconciliation?.IsRunning ? (profile.Reconciliation.CurrentTrigger || 'running') : (profile.Reconciliation?.LastExitDescription || 'n/a')}</div></div>
             </div>
             <div class="actions">
               <button data-action="pause-profile" data-profile="${profile.Name}">Pause profile</button>
               <button data-action="resume-profile" data-profile="${profile.Name}" class="secondary">Resume profile</button>
-              <button data-action="reconcile-profile" data-profile="${profile.Name}" class="secondary">Reconcile now</button>
+              <button data-action="reconcile-profile" data-profile="${profile.Name}" class="secondary" ${!serviceAvailable ? 'disabled title="Start the FolderSync service to queue reconcile requests."' : ''}>Reconcile now</button>
             </div>
             <details class="history" data-profile="${profile.Name}" ${historyOpen}>
               <summary><span class="toggle secondary">Recent activity</span></summary>
@@ -662,7 +748,7 @@ public static class DashboardCommand
                     <div class="history-item">
                       <strong>${item.Summary}</strong>
                       <div class="history-meta">${new Date(item.TimestampUtc).toLocaleString()}${item.RelativePath ? ` • ${item.RelativePath}` : ''}</div>
-                      ${item.Details ? `<div>${item.Details}</div>` : ''}
+                      ${item.Details ? `<div>${String(item.Details).replaceAll('\n', '<br>')}</div>` : ''}
                     </div>
                     `).join('')}
               </div>
@@ -687,6 +773,13 @@ public static class DashboardCommand
     document.getElementById('theme-toggle').addEventListener('click', () => {
       const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
       setTheme(currentTheme === 'dark' ? 'light' : 'dark');
+    });
+
+    document.getElementById('troubleshooting-toggle').addEventListener('click', () => {
+      const card = document.getElementById('troubleshooting-card');
+      card.style.display = 'block';
+      card.open = !card.open;
+      if (card.open) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
 
     document.getElementById('pause-all').addEventListener('click', async () => {
@@ -718,6 +811,7 @@ public static class DashboardCommand
 
       const button = event.target.closest('button[data-action]');
       if (!button) return;
+      if (button.disabled) return;
 
       const profile = button.getAttribute('data-profile');
       const action = button.getAttribute('data-action');
@@ -732,7 +826,7 @@ public static class DashboardCommand
           ? `Paused ${profile}`
           : action === 'resume-profile'
             ? `Resumed ${profile}`
-            : `Started reconciliation for ${profile}`;
+            : `Queued reconciliation for ${profile}`;
         showToast(actionLabel);
         await refresh();
       } catch (error) {

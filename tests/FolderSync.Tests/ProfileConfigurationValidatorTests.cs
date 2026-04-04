@@ -185,4 +185,78 @@ public sealed class ProfileConfigurationValidatorTests : IDisposable
         Assert.False(result.HasErrors);
         Assert.Contains(result.Warnings, w => w.Message.Contains("/MIR", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenRetentionEnabledWithoutPositiveKeepCount()
+    {
+        var source = Path.Combine(_tempDir, "source");
+        Directory.CreateDirectory(source);
+
+        var profile = new ResolvedProfile("test", new SyncOptions
+        {
+            SourcePath = source,
+            DestinationPath = Path.Combine(_tempDir, "dest"),
+            Retention = new DestinationRetentionOptions
+            {
+                Enabled = true,
+                KeepNewestCount = 0,
+                SearchPattern = "backup-*"
+            }
+        });
+
+        var result = ProfileConfigurationValidator.Validate([profile]);
+
+        Assert.True(result.HasErrors);
+        Assert.Contains(result.Errors, e => e.Message.Contains("KeepNewestCount", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenRetentionRelativePathEscapesDestination()
+    {
+        var source = Path.Combine(_tempDir, "source-retention-root");
+        Directory.CreateDirectory(source);
+
+        var profile = new ResolvedProfile("test", new SyncOptions
+        {
+            SourcePath = source,
+            DestinationPath = Path.Combine(_tempDir, "dest"),
+            Retention = new DestinationRetentionOptions
+            {
+                Enabled = true,
+                KeepNewestCount = 2,
+                RelativePath = "..\\outside",
+                SearchPattern = "backup-*"
+            }
+        });
+
+        var result = ProfileConfigurationValidator.Validate([profile]);
+
+        Assert.True(result.HasErrors);
+        Assert.Contains(result.Errors, e => e.Message.Contains("RelativePath", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenRetentionMinAgeHoursIsNegative()
+    {
+        var source = Path.Combine(_tempDir, "source-retention-age");
+        Directory.CreateDirectory(source);
+
+        var profile = new ResolvedProfile("test", new SyncOptions
+        {
+            SourcePath = source,
+            DestinationPath = Path.Combine(_tempDir, "dest"),
+            Retention = new DestinationRetentionOptions
+            {
+                Enabled = true,
+                KeepNewestCount = 2,
+                MinAgeHours = -1,
+                SearchPattern = "backup-*"
+            }
+        });
+
+        var result = ProfileConfigurationValidator.Validate([profile]);
+
+        Assert.True(result.HasErrors);
+        Assert.Contains(result.Errors, e => e.Message.Contains("MinAgeHours", StringComparison.Ordinal));
+    }
 }

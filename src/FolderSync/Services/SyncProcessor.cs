@@ -18,6 +18,7 @@ public sealed class SyncProcessor : ISyncProcessor
     private readonly IFileOperationService _fileOperations;
     private readonly IPathMappingService _pathMapping;
     private readonly IPathSafetyService _pathSafety;
+    private readonly IDestinationRetentionService _retention;
     private readonly ILogger<SyncProcessor> _logger;
 
     public SyncProcessor(
@@ -27,6 +28,7 @@ public sealed class SyncProcessor : ISyncProcessor
         IFileOperationService fileOperations,
         IPathMappingService pathMapping,
         IPathSafetyService pathSafety,
+        IDestinationRetentionService retention,
         ILogger<SyncProcessor> logger)
     {
         _stabilityChecker = stabilityChecker;
@@ -35,6 +37,7 @@ public sealed class SyncProcessor : ISyncProcessor
         _fileOperations = fileOperations;
         _pathMapping = pathMapping;
         _pathSafety = pathSafety;
+        _retention = retention;
         _logger = logger;
     }
 
@@ -57,6 +60,9 @@ public sealed class SyncProcessor : ISyncProcessor
 
                 _ => new SyncResult(true, workItem, sw.Elapsed, $"No action for {workItem.Kind}", IsSkipped: true)
             };
+
+            if (result.Success && !result.IsSkipped)
+                await _retention.ApplyAsync(RetentionExecutionTrigger.Sync, cancellationToken);
 
             return result with { Duration = sw.Elapsed };
         }

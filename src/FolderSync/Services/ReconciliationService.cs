@@ -15,6 +15,7 @@ public interface IReconciliationService
 public sealed class ReconciliationService : IReconciliationService
 {
     private readonly IRobocopyService _robocopy;
+    private readonly IDestinationRetentionService _retention;
     private readonly ReconciliationOptions _options;
     private readonly string _profileName;
     private readonly IRuntimeHealthStore _healthStore;
@@ -25,6 +26,7 @@ public sealed class ReconciliationService : IReconciliationService
     public ReconciliationService(
         string profileName,
         IRobocopyService robocopy,
+        IDestinationRetentionService retention,
         IOptions<SyncOptions> options,
         IRuntimeHealthStore healthStore,
         IClock clock,
@@ -32,6 +34,7 @@ public sealed class ReconciliationService : IReconciliationService
     {
         _profileName = profileName;
         _robocopy = robocopy;
+        _retention = retention;
         _options = options.Value.Reconciliation;
         _healthStore = healthStore;
         _clock = clock;
@@ -55,6 +58,9 @@ public sealed class ReconciliationService : IReconciliationService
             var result = await _robocopy.ReconcileAsync(cancellationToken);
             var duration = _clock.UtcNow - startedAt;
             _healthStore.RecordReconciliationCompleted(_profileName, trigger, result, duration);
+
+            if (result.Success)
+                await _retention.ApplyAsync(RetentionExecutionTrigger.Reconciliation, cancellationToken);
 
             if (result.Success)
             {
