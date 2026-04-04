@@ -42,7 +42,7 @@ public sealed class RuntimeHealthStoreTests
 
             store.RecordSyncResult("alpha", new SyncResult(true, workItem, TimeSpan.FromMilliseconds(12)));
             store.RecordSyncResult("alpha", new SyncResult(true, workItem, TimeSpan.Zero, "Unchanged", IsSkipped: true));
-            store.RecordSyncResult("alpha", new SyncResult(false, workItem, TimeSpan.Zero, "File not stable", IsSkipped: true));
+            store.RecordSyncResult("alpha", new SyncResult(true, workItem, TimeSpan.Zero, "File not stable", IsSkipped: true));
             store.RecordWatcherOverflow("alpha");
             store.RecordReconciliationStarted("alpha", "Startup");
 
@@ -81,14 +81,14 @@ public sealed class RuntimeHealthStoreTests
             Assert.NotNull(profile.LastWatcherErrorUtc);
             Assert.Equal("Watcher overflow triggered reconciliation", profile.LastWatcherError);
             Assert.Equal(3, profile.ProcessedCount);
-            Assert.Equal(2, profile.SucceededCount);
+            Assert.Equal(3, profile.SucceededCount);
             Assert.Equal(2, profile.SkippedCount);
-            Assert.Equal(1, profile.FailedCount);
+            Assert.Equal(0, profile.FailedCount);
             Assert.Equal(1, profile.WatcherOverflowCount);
-            Assert.Equal(1, profile.ConsecutiveFailureCount);
+            Assert.Equal(0, profile.ConsecutiveFailureCount);
             Assert.NotNull(profile.LastSuccessfulSyncUtc);
-            Assert.NotNull(profile.LastFailedSyncUtc);
-            Assert.Equal("File not stable", profile.LastFailure);
+            Assert.Null(profile.LastFailedSyncUtc);
+            Assert.Null(profile.LastFailure);
             Assert.Equal(1, profile.Reconciliation.RunCount);
             Assert.Equal("Startup", profile.Reconciliation.LastTrigger);
             Assert.True(profile.Reconciliation.LastSuccess);
@@ -98,7 +98,7 @@ public sealed class RuntimeHealthStoreTests
             Assert.Equal(3000d, profile.Reconciliation.LastDurationMs);
             Assert.NotEmpty(profile.RecentActivities);
             Assert.Contains(profile.RecentActivities, activity => activity.Kind == "sync");
-            Assert.Contains(profile.RecentActivities, activity => activity.Kind == "failure");
+            Assert.Contains(profile.RecentActivities, activity => activity.Kind == "skip");
             Assert.Contains(profile.RecentActivities, activity => activity.Kind == "overflow");
             Assert.Contains(profile.RecentActivities, activity => activity.Kind == "reconcile");
         }
@@ -178,7 +178,7 @@ public sealed class RuntimeHealthStoreTests
     }
 
     [Fact]
-    public void Store_RaisesAlert_AfterRepeatedFailures()
+    public void Store_DoesNotRaiseAlert_ForRepeatedSkippedUnstableFiles()
     {
         var clock = new FakeClock();
         var tempDir = Directory.CreateTempSubdirectory();
@@ -198,15 +198,15 @@ public sealed class RuntimeHealthStoreTests
             };
 
             for (var i = 0; i < 3; i++)
-                store.RecordSyncResult("alpha", new SyncResult(false, workItem, TimeSpan.Zero, "File not stable", IsSkipped: true));
+                store.RecordSyncResult("alpha", new SyncResult(true, workItem, TimeSpan.Zero, "File not stable", IsSkipped: true));
 
             var snapshot = StatusCommand.TryReadRuntimeHealthSnapshot(snapshotPath);
             var profile = Assert.Single(snapshot!.Profiles);
-            Assert.Equal(3, profile.ConsecutiveFailureCount);
-            Assert.Equal("warning", profile.AlertLevel);
-            Assert.Contains("consecutive failed sync operations", profile.AlertMessage);
-            Assert.NotNull(profile.LastAlertUtc);
-            Assert.Single(notifier.Notifications);
+            Assert.Equal(0, profile.ConsecutiveFailureCount);
+            Assert.Null(profile.AlertLevel);
+            Assert.Null(profile.AlertMessage);
+            Assert.Null(profile.LastAlertUtc);
+            Assert.Empty(notifier.Notifications);
         }
         finally
         {

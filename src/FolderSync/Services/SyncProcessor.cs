@@ -90,7 +90,7 @@ public sealed class SyncProcessor : ISyncProcessor
         if (!await _stabilityChecker.WaitForFileReadyAsync(workItem.SourcePath, ct))
         {
             _logger.LogWarning("File not stable, skipping: {Path}", workItem.SourcePath);
-            return new SyncResult(false, workItem, TimeSpan.Zero, "File not stable", IsSkipped: true);
+            return new SyncResult(true, workItem, TimeSpan.Zero, "File not stable", IsSkipped: true);
         }
 
         // Compare source and destination

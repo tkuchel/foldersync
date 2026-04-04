@@ -49,4 +49,46 @@ public sealed class SyncProcessorTests
             Arg.Any<string>(),
             Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public async Task ProcessAsync_TreatsUnstableFileAsSkippedNotFailed()
+    {
+        var stabilityChecker = Substitute.For<IStabilityChecker>();
+        var comparisonService = Substitute.For<IFileComparisonService>();
+        var conflictResolver = Substitute.For<IConflictResolver>();
+        var fileOperations = Substitute.For<IFileOperationService>();
+        var pathMapping = Substitute.For<IPathMappingService>();
+        var pathSafety = Substitute.For<IPathSafetyService>();
+
+        stabilityChecker
+            .WaitForFileReadyAsync(@"C:\source\temp.json.tmp.123", Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        var processor = new SyncProcessor(
+            stabilityChecker,
+            comparisonService,
+            conflictResolver,
+            fileOperations,
+            pathMapping,
+            pathSafety,
+            NullLogger<SyncProcessor>.Instance);
+
+        var workItem = new SyncWorkItem
+        {
+            Kind = WatcherChangeKind.Created,
+            SourcePath = @"C:\source\temp.json.tmp.123",
+            DestinationPath = @"C:\dest\temp.json.tmp.123",
+            IsDirectory = false
+        };
+
+        var result = await processor.ProcessAsync(workItem, TestContext.Current.CancellationToken);
+
+        Assert.True(result.Success);
+        Assert.True(result.IsSkipped);
+        Assert.Equal("File not stable", result.ErrorMessage);
+        await fileOperations.DidNotReceive().CopyFileAsync(
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<CancellationToken>());
+    }
 }
