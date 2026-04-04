@@ -2,6 +2,7 @@ using System.Runtime.Versioning;
 using System.CommandLine;
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using FolderSync.Models;
 
@@ -11,7 +12,8 @@ public static class StatusCommand
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
-        PropertyNameCaseInsensitive = true
+        PropertyNameCaseInsensitive = true,
+        Converters = { new JsonStringEnumConverter() }
     };
 
     internal sealed record RecentActivitySummary(
@@ -171,6 +173,7 @@ public static class StatusCommand
         var controlPath = Path.Combine(installDir, "foldersync-control.json");
         report.Control = TryReadRuntimeControlSnapshot(controlPath);
         report.Profiles = TryReadProfileNames(configPath);
+        report.TwoWayPreviewStatuses = TryReadTwoWayPreviewStatuses(configPath, installDir);
 
         var logsDir = Path.Combine(installDir, "logs");
         report.LogsDirectory = Directory.Exists(logsDir) ? logsDir : null;
@@ -381,6 +384,52 @@ public static class StatusCommand
         }
     }
 
+    private static List<TwoWayPreviewStatus> TryReadTwoWayPreviewStatuses(string configPath, string installDir)
+    {
+        try
+        {
+            if (!File.Exists(configPath))
+                return [];
+
+            using var stream = File.OpenRead(configPath);
+            using var document = JsonDocument.Parse(stream);
+
+            if (!document.RootElement.TryGetProperty(FolderSyncConfig.SectionName, out var folderSync))
+                return [];
+
+            var config = folderSync.Deserialize<FolderSyncConfig>(JsonOptions);
+            if (config is null)
+                return [];
+
+            return config.Profiles
+                .Select(profile =>
+                {
+                    var syncMode = profile.SyncMode ?? SyncMode.OneWay;
+                    var stateStorePath = profile.TwoWay?.StateStorePath;
+                    if (string.IsNullOrWhiteSpace(stateStorePath) && syncMode != SyncMode.OneWay)
+                        stateStorePath = Path.Combine(installDir, "state", $"{profile.Name}.twoway.json");
+
+                    var snapshot = !string.IsNullOrWhiteSpace(stateStorePath) && File.Exists(stateStorePath)
+                        ? TryReadTwoWayStateSnapshot(stateStorePath)
+                        : null;
+
+                    return new TwoWayPreviewStatus
+                    {
+                        ProfileName = profile.Name,
+                        SyncMode = syncMode.ToString(),
+                        StateStorePath = stateStorePath,
+                        UpdatedAtUtc = snapshot?.UpdatedAtUtc,
+                        ConflictCount = snapshot?.Conflicts.Count ?? 0
+                    };
+                })
+                .ToList();
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
     private static List<string> ReadTail(string path, int maxLines)
     {
         try
@@ -507,6 +556,27 @@ public static class StatusCommand
                 FileShare.ReadWrite | FileShare.Delete);
 
             return JsonSerializer.Deserialize<RuntimeControlSnapshot>(stream, JsonOptions);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    internal static TwoWayStateSnapshot? TryReadTwoWayStateSnapshot(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+                return null;
+
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+
+            return JsonSerializer.Deserialize<TwoWayStateSnapshot>(stream, JsonOptions);
         }
         catch
         {

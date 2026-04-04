@@ -120,9 +120,38 @@ public sealed class StatusCommandTests
             {
               "FolderSync": {
                 "Profiles": [
-                  { "Name": "alpha" }
+                  {
+                    "Name": "alpha",
+                    "SourcePath": "__SRC__",
+                    "DestinationPath": "__DST__",
+                    "SyncMode": "TwoWayPreview",
+                    "TwoWay": {
+                      "StateStorePath": "__STATE__"
+                    }
+                  }
                 ]
               }
+            }
+            """
+            .Replace("__SRC__", Path.Combine(installDir.FullName, "source-alpha").Replace("\\", "\\\\"))
+            .Replace("__DST__", Path.Combine(installDir.FullName, "dest-alpha").Replace("\\", "\\\\"))
+            .Replace("__STATE__", Path.Combine(installDir.FullName, "state", "alpha.twoway.json").Replace("\\", "\\\\")));
+
+            var stateDir = Path.Combine(installDir.FullName, "state");
+            Directory.CreateDirectory(stateDir);
+            File.WriteAllText(Path.Combine(stateDir, "alpha.twoway.json"), """
+            {
+              "schemaVersion": "1",
+              "updatedAtUtc": "2026-04-02T10:06:00+00:00",
+              "entries": [],
+              "conflicts": [
+                {
+                  "relativePath": "docs/file.txt",
+                  "reason": "Changed on both sides since the last known state",
+                  "detectedAtUtc": "2026-04-02T10:06:00+00:00",
+                  "recommendedMode": "Manual"
+                }
+              ]
             }
             """);
 
@@ -174,6 +203,10 @@ public sealed class StatusCommandTests
             Assert.Equal(3, report.Runtime!.Profiles[0].Reconciliation.RunCount);
             Assert.Equal("Watching", report.Runtime.Profiles[0].WatcherState);
             Assert.Equal("Updated", report.Runtime.Profiles[0].LastWatcherEventKind);
+            var preview = Assert.Single(report.TwoWayPreviewStatuses);
+            Assert.Equal("alpha", preview.ProfileName);
+            Assert.Equal("TwoWayPreview", preview.SyncMode);
+            Assert.Equal(1, preview.ConflictCount);
             Assert.NotNull(report.RecentActivity);
             Assert.Contains("Reconciliation completed", report.RecentActivity!.LastReconcile);
             Assert.Contains("Synced docs\\file.txt", report.RecentActivity.LastSync);

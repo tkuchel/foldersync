@@ -1344,6 +1344,7 @@ public static class DashboardCommand
         }
         for (const profile of visibleProfiles) {
           const configuredProfile = configuredProfiles.find(item => item.Name.toLowerCase() === profile.Name.toLowerCase()) || null;
+          const previewStatus = (currentData?.TwoWayPreviewStatuses || []).find(item => item.ProfileName.toLowerCase() === profile.Name.toLowerCase()) || null;
           const collapsedActivities = collapseActivities(profile.RecentActivities || []);
           const filteredActivities = collapsedActivities.filter(item => matchesActivityFilter(item, getActivityFilter()));
           const summaryChips = summarizeActivities(collapsedActivities).map(text => `<span class="summary-chip">${escapeHtml(text)}</span>`).join('');
@@ -1366,6 +1367,8 @@ public static class DashboardCommand
           const safeWatcherError = escapeHtml(profile.LastWatcherError
             ? `${formatTimestamp(profile.LastWatcherErrorUtc)}: ${profile.LastWatcherError}`
             : 'n/a');
+          const safeSyncMode = escapeHtml(previewStatus?.SyncMode || configuredProfile?.SyncMode || 'OneWay');
+          const safePreviewConflicts = escapeHtml(String(previewStatus?.ConflictCount ?? 0));
           div.innerHTML = `
             <div class="profile-head">
               <div class="profile-title">
@@ -1379,6 +1382,8 @@ public static class DashboardCommand
               <div class="stat"><div class="stat-label">Skipped</div><div class="stat-value">${profile.SkippedCount}</div></div>
               <div class="stat"><div class="stat-label">Failed</div><div class="stat-value">${profile.FailedCount}</div></div>
               <div class="stat"><div class="stat-label">Overflows</div><div class="stat-value">${profile.WatcherOverflowCount}</div></div>
+              <div class="stat"><div class="stat-label">Sync Mode</div><div class="stat-value">${safeSyncMode}</div></div>
+              <div class="stat"><div class="stat-label">Preview Conflicts</div><div class="stat-value">${safePreviewConflicts}</div></div>
               <div class="stat"><div class="stat-label">Watcher</div><div class="stat-value">${safeWatcherState}</div></div>
               <div class="stat"><div class="stat-label">Last Event</div><div class="stat-value">${safeWatcherEvent}</div></div>
               <div class="stat"><div class="stat-label">Last Sync</div><div class="stat-value">${formatTimestamp(profile.LastSuccessfulSyncUtc)}</div></div>

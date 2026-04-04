@@ -15,6 +15,7 @@ public sealed class StatusReport
     public LogFileReport? RecentLog { get; set; }
     public RuntimeHealthSnapshot? Runtime { get; set; }
     public RecentActivityReport? RecentActivity { get; set; }
+    public List<TwoWayPreviewStatus> TwoWayPreviewStatuses { get; set; } = [];
 }
 
 public sealed class LogFileReport
@@ -31,4 +32,13 @@ public sealed class RecentActivityReport
     public string? LastLifecycle { get; set; }
     public string? LastWarning { get; set; }
     public string? LastError { get; set; }
+}
+
+public sealed class TwoWayPreviewStatus
+{
+    public required string ProfileName { get; set; }
+    public required string SyncMode { get; set; }
+    public string? StateStorePath { get; set; }
+    public DateTimeOffset? UpdatedAtUtc { get; set; }
+    public int ConflictCount { get; set; }
 }

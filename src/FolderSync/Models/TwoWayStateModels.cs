@@ -3,7 +3,9 @@ namespace FolderSync.Models;
 public sealed class TwoWayStateSnapshot
 {
     public string SchemaVersion { get; set; } = "1";
+    public DateTimeOffset? UpdatedAtUtc { get; set; }
     public List<TwoWayStateEntry> Entries { get; set; } = [];
+    public List<TwoWayConflictRecord> Conflicts { get; set; } = [];
 }
 
 public sealed class TwoWayStateEntry
