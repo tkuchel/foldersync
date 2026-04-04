@@ -229,6 +229,37 @@ public sealed class ConfigMergingTests
     }
 
     [Fact]
+    public void MergeWithDefaults_BlankRobocopyOptions_InheritsDefault()
+    {
+        var defaults = new SyncOptions
+        {
+            Reconciliation = new ReconciliationOptions
+            {
+                Enabled = true,
+                UseRobocopy = true,
+                RobocopyOptions = "/E /FFT /Z /R:2 /W:5 /XO /NFL /NDL /NP /XJ"
+            }
+        };
+
+        var profile = new SyncProfileConfig
+        {
+            Name = "test",
+            SourcePath = @"C:\Source",
+            DestinationPath = @"C:\Dest",
+            Reconciliation = new ReconciliationOptions
+            {
+                Enabled = true,
+                UseRobocopy = true,
+                RobocopyOptions = ""
+            }
+        };
+
+        var result = profile.MergeWithDefaults(defaults);
+
+        Assert.Equal("/E /FFT /Z /R:2 /W:5 /XO /NFL /NDL /NP /XJ", result.Reconciliation.RobocopyOptions);
+    }
+
+    [Fact]
     public void MergeWithDefaults_DoesNotMutateDefaults()
     {
         var defaults = new SyncOptions

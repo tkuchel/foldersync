@@ -147,7 +147,9 @@ public sealed class SyncProfileConfig
                 IntervalMinutes = Reconciliation.IntervalMinutes,
                 RunOnStartup = Reconciliation.RunOnStartup,
                 UseRobocopy = Reconciliation.UseRobocopy,
-                RobocopyOptions = Reconciliation.RobocopyOptions
+                RobocopyOptions = string.IsNullOrWhiteSpace(Reconciliation.RobocopyOptions)
+                    ? defaults.Reconciliation.RobocopyOptions
+                    : Reconciliation.RobocopyOptions
             };
         }
 
@@ -268,7 +270,7 @@ public sealed class ReconciliationOptions
     public int IntervalMinutes { get; set; } = 15;
     public bool RunOnStartup { get; set; } = true;
     public bool UseRobocopy { get; set; } = true;
-    public string RobocopyOptions { get; set; } = "/E /FFT /Z /R:2 /W:5 /XO /NFL /NDL /NP";
+    public string RobocopyOptions { get; set; } = "/E /FFT /Z /R:2 /W:5 /XO /NFL /NDL /NP /XJ";
 }
 
 public sealed class ExclusionOptions
