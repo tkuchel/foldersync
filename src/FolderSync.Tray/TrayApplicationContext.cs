@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Net;
+using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 using System.ServiceProcess;
 using System.Text.Json;
@@ -32,6 +34,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _dashboardItem;
     private readonly ToolStripMenuItem _dashboardStateItem;
     private readonly ToolStripMenuItem _startDashboardItem;
+    private readonly ToolStripMenuItem _stopDashboardItem;
+    private readonly ToolStripMenuItem _restartDashboardItem;
     private readonly ToolStripMenuItem _profilesItem;
     private readonly ToolStripMenuItem _pauseAllItem;
     private readonly ToolStripMenuItem _resumeAllItem;
@@ -85,6 +89,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
         ]);
         _dashboardStateItem = new ToolStripMenuItem("Status: unknown") { Enabled = false };
         _startDashboardItem = new ToolStripMenuItem("Start dashboard host", null, (_, _) => StartDashboardHost());
+        _stopDashboardItem = new ToolStripMenuItem("Stop dashboard host", null, (_, _) => StopDashboardHost());
+        _restartDashboardItem = new ToolStripMenuItem("Restart dashboard host", null, (_, _) => RestartDashboardHost());
         _profilesItem = new ToolStripMenuItem("Profiles");
         _pauseAllItem = new ToolStripMenuItem("Pause all", null, (_, _) => PauseAll());
         _resumeAllItem = new ToolStripMenuItem("Resume all", null, (_, _) => ResumeAll());
@@ -96,7 +102,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _dashboardStateItem,
             new ToolStripSeparator(),
             _openDashboardItem,
-            _startDashboardItem
+            _startDashboardItem,
+            _stopDashboardItem,
+            _restartDashboardItem
         ]);
         _openInstallItem = new ToolStripMenuItem("Open install folder", null, (_, _) => OpenInstallFolder());
         _startWithWindowsItem = new ToolStripMenuItem("Start with Windows", null, (_, _) => ToggleStartWithWindows())
@@ -273,6 +281,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _stopServiceItem.Enabled = _serviceStatus is ServiceControllerStatus.Running;
         _restartServiceItem.Enabled = _serviceStatus is ServiceControllerStatus.Running;
         _startDashboardItem.Enabled = !_dashboardResponsive && !string.IsNullOrWhiteSpace(_executablePath);
+        _stopDashboardItem.Enabled = _dashboardResponsive;
+        _restartDashboardItem.Enabled = _dashboardResponsive && !string.IsNullOrWhiteSpace(_executablePath);
 
         var highestSeverity = GetHighestSeverityProfile();
         var iconState = highestSeverity switch
@@ -796,6 +806,31 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
     }
 
+    private void StopDashboardHost()
+    {
+        RunDashboardAction(
+            "stop",
+            "Dashboard host stopped.",
+            () =>
+            {
+                var stopped = StopDashboardProcesses();
+                if (stopped == 0)
+                    throw new InvalidOperationException("Dashboard host is not running.");
+            });
+    }
+
+    private void RestartDashboardHost()
+    {
+        RunDashboardAction(
+            "restart",
+            "Dashboard host restarted.",
+            () =>
+            {
+                StopDashboardProcesses();
+                StartDashboardProcess();
+            });
+    }
+
     private void StartService()
     {
         RunServiceAction(
@@ -864,6 +899,26 @@ internal sealed class TrayApplicationContext : ApplicationContext
             catch (Exception ex)
             {
                 InvokeOnUiThread(() => ShowBalloon("FolderSync Tray", $"Unable to {action} service: {ex.Message}", ToolTipIcon.Error));
+            }
+        });
+    }
+
+    private void RunDashboardAction(string action, string successMessage, Action operation)
+    {
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                operation();
+                InvokeOnUiThread(() =>
+                {
+                    BeginRefresh(showErrors: false);
+                    ShowBalloon("FolderSync Tray", successMessage, ToolTipIcon.Info);
+                });
+            }
+            catch (Exception ex)
+            {
+                InvokeOnUiThread(() => ShowBalloon("FolderSync Tray", $"Unable to {action} dashboard host: {ex.Message}", ToolTipIcon.Error));
             }
         });
     }
@@ -1365,6 +1420,83 @@ internal sealed class TrayApplicationContext : ApplicationContext
         return $"{DashboardUrl}?profile={Uri.EscapeDataString(profileName)}";
     }
 
+    private int StopDashboardProcesses()
+    {
+        var stopped = 0;
+
+        foreach (var processId in GetDashboardHostProcessIds())
+        {
+            try
+            {
+                using var process = Process.GetProcessById(processId);
+                if (process.HasExited)
+                    continue;
+
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit(5000);
+                stopped++;
+            }
+            catch
+            {
+            }
+        }
+
+        if (_dashboardProcess is { HasExited: false })
+        {
+            try
+            {
+                _dashboardProcess.Kill(entireProcessTree: true);
+                _dashboardProcess.WaitForExit(5000);
+            }
+            catch
+            {
+            }
+        }
+
+        _dashboardProcess?.Dispose();
+        _dashboardProcess = null;
+        return stopped;
+    }
+
+    private static IEnumerable<int> GetDashboardHostProcessIds()
+    {
+        var rows = new MibTcpRowOwnerPid[16];
+        var bufferSize = 0u;
+
+        var result = GetExtendedTcpTable(IntPtr.Zero, ref bufferSize, sort: true, AF_INET, TCP_TABLE_CLASS.TCP_TABLE_OWNER_PID_ALL, 0);
+        if (result != ERROR_INSUFFICIENT_BUFFER || bufferSize == 0)
+            return [];
+
+        var buffer = Marshal.AllocHGlobal((int)bufferSize);
+        try
+        {
+            result = GetExtendedTcpTable(buffer, ref bufferSize, sort: true, AF_INET, TCP_TABLE_CLASS.TCP_TABLE_OWNER_PID_ALL, 0);
+            if (result != 0)
+                return [];
+
+            var count = Marshal.ReadInt32(buffer);
+            var rowPtr = IntPtr.Add(buffer, sizeof(int));
+            var rowSize = Marshal.SizeOf<MibTcpRowOwnerPid>();
+            var processIds = new HashSet<int>();
+
+            for (var index = 0; index < count; index++)
+            {
+                var row = Marshal.PtrToStructure<MibTcpRowOwnerPid>(rowPtr);
+                var localPort = (ushort)IPAddress.NetworkToHostOrder((short)row.localPort);
+                if (localPort == 8941)
+                    processIds.Add((int)row.owningPid);
+
+                rowPtr = IntPtr.Add(rowPtr, rowSize);
+            }
+
+            return processIds.ToList();
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
+    }
+
     private void UpdateTrayIcon(string state)
     {
         if (string.Equals(_currentIconState, state, StringComparison.Ordinal))
@@ -1534,6 +1666,34 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool DestroyIcon(IntPtr hIcon);
+
+    [DllImport("iphlpapi.dll", SetLastError = true)]
+    private static extern uint GetExtendedTcpTable(
+        IntPtr pTcpTable,
+        ref uint dwOutBufLen,
+        bool sort,
+        int ipVersion,
+        TCP_TABLE_CLASS tableClass,
+        uint reserved);
+
+    private const int AF_INET = 2;
+    private const uint ERROR_INSUFFICIENT_BUFFER = 122;
+
+    private enum TCP_TABLE_CLASS
+    {
+        TCP_TABLE_OWNER_PID_ALL = 5
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MibTcpRowOwnerPid
+    {
+        public uint state;
+        public uint localAddr;
+        public uint localPort;
+        public uint remoteAddr;
+        public uint remotePort;
+        public uint owningPid;
+    }
 }
 
 internal sealed class RuntimeControlSnapshot
