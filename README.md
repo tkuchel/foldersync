@@ -38,7 +38,7 @@ dotnet run --project src\FolderSync.Tray\FolderSync.Tray.csproj
 
 `status --verbose` is the best human-oriented operator view.
 
-`status --json` emits the full structured service/runtime report, including install/config/log paths, runtime counters, reconciliation metadata, and recent activity.
+`status --json` emits the full structured service/runtime report, including install/config/log paths, runtime counters, pause state, queued reconcile requests, reconciliation metadata, and recent activity.
 
 `health` is a compact summary for quick checks.
 
@@ -46,12 +46,15 @@ dotnet run --project src\FolderSync.Tray\FolderSync.Tray.csproj
 
 `pause` and `resume` control the running service through a persisted control file. When you pass `--profile`, only that profile pauses and the rest of the service keeps running.
 
+Dashboard and tray reconcile actions are also routed through the persisted control file. The running service consumes those queued reconcile requests, so installed-service operator actions no longer spawn a second one-shot reconcile process.
+
 `dashboard` starts a lightweight local web dashboard on `http://127.0.0.1:8941/` by default and opens it in your browser.
 The dashboard now supports:
 
 - filtering by profile name
 - pause and resume actions for the whole service
 - pause and resume actions per profile
+- queued reconcile visibility for the whole service and per profile
 - per-profile recent activity history
 - one-click profile reconciliation from the installed service
 
@@ -60,6 +63,7 @@ The dashboard now supports:
 - live tray status from the persisted health snapshot
 - alert balloons for service/profile warnings
 - quick pause, resume, and reconcile actions
+- queued reconcile visibility in the tray status and profile menus
 - per-profile quick actions
 - one-click dashboard launch
 - one-click profile jump into the dashboard
@@ -109,6 +113,7 @@ foldersync health --json
 ```
 
 The running service also persists runtime health to `foldersync-health.json` in the install directory.
+Control state and queued operator requests are persisted separately in `foldersync-control.json`.
 
 That snapshot includes:
 
@@ -117,6 +122,12 @@ That snapshot includes:
 - last successful sync and last failure
 - repeated-failure / repeated-overflow alerts
 - latest reconciliation trigger, duration, exit meaning, and parsed robocopy summary
+
+The control file includes:
+
+- global pause state and pause reason
+- per-profile pause state
+- queued reconcile requests waiting to be consumed by the running service
 
 Optional alert notifications can be configured under `FolderSync:Notifications` with a webhook URL and cooldown.
 Supported notification providers are:
@@ -154,10 +165,17 @@ dotnet test FolderSync.slnx --nologo
 
 ## Versioning
 
-- The project version is set explicitly in [FolderSync.csproj](/T:/repos/foldersync/src/FolderSync/FolderSync.csproj).
+- Shared version metadata for both binaries is defined in [Directory.Build.props](C:/Users/terre/cowork-workspace/foldersync/Directory.Build.props).
 - `Version` and `InformationalVersion` should match the intended release tag, for example `1.0.1`.
 - `AssemblyVersion` and `FileVersion` should stay in four-part form, for example `1.0.1.0`.
 - When cutting a release, bump the project version first, build/test, then create the matching Git tag.
+
+## Releases
+
+- CI now smoke-tests `dotnet publish` for both the service and tray companion on Windows.
+- The current CI workflow validates build, tests, JSON report shape, and publishability, but it does not create tagged release artifacts yet.
+- Local release validation should still include `dotnet test FolderSync.slnx --nologo` before tagging.
+- A short human release checklist lives in [RELEASE_CHECKLIST.md](C:/Users/terre/cowork-workspace/foldersync/RELEASE_CHECKLIST.md).
 
 The repo ignores generated output like `bin/`, `obj/`, logs, IDE state, and local Codex/Claude workspace files.
 
@@ -172,10 +190,10 @@ The repo ignores generated output like `bin/`, `obj/`, logs, IDE state, and loca
 
 The current next-frontier work is:
 
-- profile-level pause and resume controls instead of only global pause/resume
-- richer dashboard interactions, including profile filtering and operator actions
-- notification integrations and templates for tools like Slack or Teams
-- broader operator UX improvements built on the existing health and status APIs
+- clearer operator state transitions in the dashboard and tray, especially differentiating `queued`, `running`, and `service unavailable`
+- deeper integration coverage around watcher overflow and cross-process operator workflows
+- release packaging automation for tagged builds and attached artifacts
+- incremental operator UX improvements built on the existing health, status, and control-file APIs
 
 Current progress on `develop`:
 
@@ -183,6 +201,8 @@ Current progress on `develop`:
 - dashboard filtering and pause/resume actions are implemented
 - Slack/Teams notification payload templates are implemented
 - dashboard profile activity history and one-click reconcile actions are implemented
+- service-owned queued reconcile requests are implemented for dashboard and tray operator actions
+- queued reconcile visibility is implemented in `status --json`, the dashboard, and the tray
 
 ## Local Deployment
 

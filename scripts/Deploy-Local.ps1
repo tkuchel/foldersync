@@ -67,11 +67,13 @@ function Invoke-RobocopyCopy {
 function Remove-StalePublishDirectories {
     param(
         [Parameter(Mandatory = $true)][string]$TempRoot,
-        [Parameter(Mandatory = $true)][string]$CurrentPublishDir
+        [Parameter(Mandatory = $true)][string[]]$CurrentPublishDirs
     )
 
-    $staleDirectories = Get-ChildItem -Path $TempRoot -Directory -Filter "foldersync-publish-*" -ErrorAction SilentlyContinue |
-        Where-Object { $_.FullName -ne $CurrentPublishDir }
+    $filters = @("foldersync-publish-*", "foldersync-tray-publish-*")
+    $staleDirectories = foreach ($filter in $filters) {
+        Get-ChildItem -Path $TempRoot -Directory -Filter $filter -ErrorAction SilentlyContinue
+    } | Where-Object { $CurrentPublishDirs -notcontains $_.FullName }
 
     foreach ($directory in $staleDirectories) {
         try {
@@ -83,6 +85,17 @@ function Remove-StalePublishDirectories {
         catch {
             Write-Warning "Could not remove stale publish directory '$($directory.FullName)': $($_.Exception.Message)"
         }
+    }
+}
+
+function Assert-PathExists {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Description
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw "$Description not found: $Path"
     }
 }
 
@@ -121,7 +134,7 @@ try {
         throw "Target config not found: $targetConfigPath"
     }
 
-    Remove-StalePublishDirectories -TempRoot $tempRoot -CurrentPublishDir $publishDir
+    Remove-StalePublishDirectories -TempRoot $tempRoot -CurrentPublishDirs @($publishDir, $trayPublishDir)
 
     if (-not $SkipTests) {
         Write-Host "Running test suite..."
@@ -134,11 +147,13 @@ try {
     Write-Host "Publishing FolderSync ($Configuration)..."
     New-Item -ItemType Directory -Path $publishDir | Out-Null
     Invoke-DotNet -Arguments @("publish", $projectPath, "-c", $Configuration, "-o", $publishDir) -WorkingDirectory $repoRoot
+    Assert-PathExists -Path (Join-Path $publishDir "foldersync.exe") -Description "Published service executable"
 
     if (-not $SkipTray) {
         Write-Host "Publishing FolderSync.Tray ($Configuration)..."
         New-Item -ItemType Directory -Path $trayPublishDir | Out-Null
         Invoke-DotNet -Arguments @("publish", $trayProjectPath, "-c", $Configuration, "-o", $trayPublishDir) -WorkingDirectory $repoRoot
+        Assert-PathExists -Path (Join-Path $trayPublishDir "foldersync-tray.exe") -Description "Published tray executable"
     }
 
     $service = Get-Service -Name $ServiceName -ErrorAction Stop

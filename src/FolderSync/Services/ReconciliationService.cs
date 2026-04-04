@@ -20,6 +20,7 @@ public sealed class ReconciliationService : IReconciliationService
     private readonly IRuntimeHealthStore _healthStore;
     private readonly IClock _clock;
     private readonly ILogger<ReconciliationService> _logger;
+    private readonly SemaphoreSlim _runGate = new(1, 1);
 
     public ReconciliationService(
         string profileName,
@@ -45,20 +46,28 @@ public sealed class ReconciliationService : IReconciliationService
             return;
         }
 
-        var startedAt = _clock.UtcNow;
-        _healthStore.RecordReconciliationStarted(_profileName, trigger);
-        _logger.LogInformation("Starting reconciliation...");
-        var result = await _robocopy.ReconcileAsync(cancellationToken);
-        var duration = _clock.UtcNow - startedAt;
-        _healthStore.RecordReconciliationCompleted(_profileName, trigger, result, duration);
+        await _runGate.WaitAsync(cancellationToken);
+        try
+        {
+            var startedAt = _clock.UtcNow;
+            _healthStore.RecordReconciliationStarted(_profileName, trigger);
+            _logger.LogInformation("Starting reconciliation...");
+            var result = await _robocopy.ReconcileAsync(cancellationToken);
+            var duration = _clock.UtcNow - startedAt;
+            _healthStore.RecordReconciliationCompleted(_profileName, trigger, result, duration);
 
-        if (result.Success)
-        {
-            _logger.LogInformation("Reconciliation completed successfully (exit code {ExitCode})", result.ExitCode);
+            if (result.Success)
+            {
+                _logger.LogInformation("Reconciliation completed successfully (exit code {ExitCode})", result.ExitCode);
+            }
+            else
+            {
+                _logger.LogError("Reconciliation failed (exit code {ExitCode})", result.ExitCode);
+            }
         }
-        else
+        finally
         {
-            _logger.LogError("Reconciliation failed (exit code {ExitCode})", result.ExitCode);
+            _runGate.Release();
         }
     }
 

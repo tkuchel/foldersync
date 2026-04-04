@@ -176,20 +176,10 @@ public static class DashboardCommand
             if (string.IsNullOrWhiteSpace(request.Profile))
             {
                 controlStore.SetPaused(pause, pause ? NormalizeReason(request.Reason) : null);
-                UpdateRuntimeControlActivity(
-                    installDir!,
-                    pause ? "pause" : "resume",
-                    profileName: null,
-                    pause ? NormalizeReason(request.Reason) : null);
             }
             else
             {
                 controlStore.SetProfilePaused(request.Profile, pause, pause ? NormalizeReason(request.Reason) : null);
-                UpdateRuntimeControlActivity(
-                    installDir!,
-                    pause ? "pause" : "resume",
-                    request.Profile,
-                    pause ? NormalizeReason(request.Reason) : null);
             }
         }
         catch (UnauthorizedAccessException)
@@ -220,26 +210,24 @@ public static class DashboardCommand
         }
 
         var report = StatusCommand.TryBuildStatusReport(serviceName, out var error);
-        if (report is null || string.IsNullOrWhiteSpace(report.BinaryPath))
+        if (report is null)
         {
             context.Response.StatusCode = 500;
-            await WriteJsonAsync(context.Response, new { error = error ?? "Failed to resolve installed executable." });
+            await WriteJsonAsync(context.Response, new { error = error ?? "Failed to resolve FolderSync service state." });
             return;
         }
 
-        var executablePath = NormalizeExecutablePath(report.BinaryPath);
-        var configPath = report.ConfigPath;
-        if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath))
+        if (string.IsNullOrWhiteSpace(report.InstallDirectory))
         {
             context.Response.StatusCode = 500;
-            await WriteJsonAsync(context.Response, new { error = "Installed executable not found." });
+            await WriteJsonAsync(context.Response, new { error = "Installed FolderSync directory could not be resolved." });
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath))
+        if (!string.Equals(report.RawState, "RUNNING", StringComparison.OrdinalIgnoreCase))
         {
-            context.Response.StatusCode = 500;
-            await WriteJsonAsync(context.Response, new { error = "Installed appsettings.json not found." });
+            context.Response.StatusCode = 409;
+            await WriteJsonAsync(context.Response, new { error = "FolderSync service must be running to accept dashboard reconciliation requests." });
             return;
         }
 
@@ -259,30 +247,17 @@ public static class DashboardCommand
             return;
         }
 
-        var arguments = $"reconcile --config \"{configPath}\" --trigger Dashboard";
-        if (!string.IsNullOrWhiteSpace(request.Profile))
-            arguments += $" --profile \"{request.Profile}\"";
-
         try
         {
-            var process = new System.Diagnostics.Process
+            var controlStore = new RuntimeControlStore(Path.Combine(report.InstallDirectory!, "foldersync-control.json"), new SystemClock());
+            if (!string.IsNullOrWhiteSpace(request.Profile))
             {
-                StartInfo = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = executablePath,
-                    Arguments = arguments,
-                    WorkingDirectory = Path.GetDirectoryName(executablePath)!,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-
-            process.Start();
-            UpdateRuntimeControlActivity(
-                report.InstallDirectory!,
-                "reconcile",
-                request.Profile,
-                "Requested from dashboard");
+                controlStore.EnqueueReconcileRequest(request.Profile, "Dashboard");
+            }
+            else
+            {
+                controlStore.EnqueueReconcileRequests(GetTargetProfiles(report), "Dashboard");
+            }
         }
         catch (Exception ex)
         {
@@ -302,6 +277,21 @@ public static class DashboardCommand
     private static string NormalizeReason(string? reason)
     {
         return string.IsNullOrWhiteSpace(reason) ? "Paused by operator" : reason;
+    }
+
+    internal static List<string> GetTargetProfiles(StatusReport report)
+    {
+        var profiles = report.Runtime?.Profiles
+            .Select(profile => profile.Name)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .ToList();
+
+        if (profiles is { Count: > 0 })
+            return profiles;
+
+        return report.Profiles
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .ToList();
     }
 
     private static string GetDashboardIconDataUrl()
@@ -328,114 +318,7 @@ public static class DashboardCommand
 """;
     }
 
-    private static void UpdateRuntimeControlActivity(string installDir, string action, string? profileName, string? details)
-    {
-        try
-        {
-            var healthPath = Path.Combine(installDir, "foldersync-health.json");
-            var snapshot = StatusCommand.TryReadRuntimeHealthSnapshot(healthPath);
-            if (snapshot is null)
-                return;
-
-            snapshot.UpdatedAtUtc = DateTimeOffset.UtcNow;
-
-            if (string.IsNullOrWhiteSpace(profileName))
-            {
-                foreach (var profile in snapshot.Profiles)
-                    ApplyActivity(profile, action, details);
-            }
-            else
-            {
-                var profile = snapshot.Profiles.FirstOrDefault(item =>
-                    string.Equals(item.Name, profileName, StringComparison.OrdinalIgnoreCase));
-                if (profile is null)
-                    return;
-
-                ApplyActivity(profile, action, details);
-            }
-
-            PersistRuntimeHealthSnapshot(healthPath, snapshot);
-        }
-        catch
-        {
-        }
-    }
-
-    private static void ApplyActivity(ProfileHealthSnapshot profile, string action, string? details)
-    {
-        var now = DateTimeOffset.UtcNow;
-        switch (action)
-        {
-            case "pause":
-                profile.IsPaused = true;
-                profile.PauseReason = details;
-                profile.PausedAtUtc = now;
-                profile.State = "Paused";
-                profile.AddActivity(new ProfileActivitySnapshot
-                {
-                    Kind = "control",
-                    Summary = "Paused from dashboard",
-                    TimestampUtc = now,
-                    Details = details
-                });
-                break;
-            case "resume":
-                profile.IsPaused = false;
-                profile.PauseReason = null;
-                profile.PausedAtUtc = null;
-                if (string.Equals(profile.State, "Paused", StringComparison.OrdinalIgnoreCase))
-                    profile.State = "Running";
-                profile.AddActivity(new ProfileActivitySnapshot
-                {
-                    Kind = "control",
-                    Summary = "Resumed from dashboard",
-                    TimestampUtc = now,
-                    Details = details
-                });
-                break;
-            case "reconcile":
-                profile.Reconciliation.LastTrigger = "Dashboard";
-                profile.AddActivity(new ProfileActivitySnapshot
-                {
-                    Kind = "reconcile",
-                    Summary = "Reconciliation requested from dashboard",
-                    TimestampUtc = now,
-                    Details = details
-                });
-                break;
-        }
-    }
-
-    private static void PersistRuntimeHealthSnapshot(string path, RuntimeHealthSnapshot snapshot)
-    {
-        var directory = Path.GetDirectoryName(path);
-        if (!string.IsNullOrWhiteSpace(directory))
-            Directory.CreateDirectory(directory);
-
-        var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
-        var tempPath = path + ".tmp";
-        File.WriteAllText(tempPath, json);
-        File.Move(tempPath, path, overwrite: true);
-    }
-
-    private static string NormalizeExecutablePath(string binPath)
-    {
-        var trimmed = binPath.Trim();
-        if (trimmed.StartsWith('"'))
-        {
-            var closingQuote = trimmed.IndexOf('"', 1);
-            if (closingQuote > 1)
-                return trimmed[1..closingQuote];
-        }
-
-        var exeIndex = trimmed.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
-        if (exeIndex >= 0)
-            return trimmed[..(exeIndex + 4)];
-
-        return trimmed;
-    }
-
-    private static StatusReport ApplyProfileFilter(StatusReport report, string? profileName)
+    internal static StatusReport ApplyProfileFilter(StatusReport report, string? profileName)
     {
         if (string.IsNullOrWhiteSpace(profileName) || report.Runtime is null)
             return report;
@@ -598,6 +481,10 @@ public static class DashboardCommand
         <div class="label">Profiles</div>
         <div class="value" id="profile-count">0</div>
       </div>
+      <div class="card">
+        <div class="label">Queued Reconciles</div>
+        <div class="value" id="queued-reconcile-count">0</div>
+      </div>
     </div>
 
     <div class="toolbar">
@@ -625,7 +512,6 @@ public static class DashboardCommand
     const themeKey = 'foldersync-dashboard-theme';
     const expandedKey = 'foldersync-dashboard-expanded';
     const expandedProfiles = new Set(JSON.parse(localStorage.getItem(expandedKey) || '[]'));
-    let currentData = null;
     let lastToastTimeout = null;
 
     function saveExpandedProfiles() {
@@ -708,17 +594,22 @@ public static class DashboardCommand
       return 'pill';
     }
 
+    function getPendingRequests(data, profileName) {
+      const requests = data.Control?.ReconcileRequests || [];
+      if (!profileName) return requests;
+      return requests.filter(item => item.ProfileName === profileName);
+    }
+
     async function refresh() {
       try {
         rememberExpandedPanels();
         const response = await fetch('/api/status', { cache: 'no-store' });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Failed to load status');
-        currentData = data;
-
         document.getElementById('service-status').textContent = data.DisplayState;
         document.getElementById('paused-status').textContent = data.Control?.IsPaused ? `Paused (${data.Control.Reason || 'no reason'})` : 'Active';
         document.getElementById('profile-count').textContent = (data.Runtime?.Profiles || []).length;
+        document.getElementById('queued-reconcile-count').textContent = getPendingRequests(data).length;
         document.getElementById('updated').textContent = data.Runtime?.UpdatedAtUtc ? `Updated ${new Date(data.Runtime.UpdatedAtUtc).toLocaleString()}` : 'No runtime snapshot';
 
         const host = document.getElementById('profiles');
@@ -728,13 +619,23 @@ public static class DashboardCommand
           const div = document.createElement('div');
           div.className = 'profile';
           const pillClass = profileStatusClass(profile);
-          const profileStatus = profile.IsPaused ? `Paused${profile.PauseReason ? `: ${profile.PauseReason}` : ''}` : (profile.AlertMessage ? profile.AlertLevel : profile.State);
+          const pendingRequests = getPendingRequests(data, profile.Name);
+          const profileStatus = pendingRequests.length > 0
+            ? `Queued reconcile${pendingRequests.length > 1 ? ` (${pendingRequests.length})` : ''}`
+            : profile.IsPaused
+              ? `Paused${profile.PauseReason ? `: ${profile.PauseReason}` : ''}`
+              : (profile.AlertMessage ? profile.AlertLevel : profile.State);
           const historyOpen = expandedProfiles.has(profile.Name) ? 'open' : '';
+          const lastQueued = pendingRequests.length > 0
+            ? pendingRequests[pendingRequests.length - 1]
+            : null;
           div.innerHTML = `
             <div class="profile-head">
               <div class="profile-title">
                 <strong>${profile.Name}</strong>
-                <div class="profile-subtitle">${profile.Reconciliation?.LastTrigger ? `Last trigger: ${profile.Reconciliation.LastTrigger}` : 'Watching for changes'}</div>
+                <div class="profile-subtitle">${pendingRequests.length > 0
+                  ? `Queued by ${lastQueued.Trigger} at ${new Date(lastQueued.RequestedAtUtc).toLocaleString()}`
+                  : (profile.Reconciliation?.LastTrigger ? `Last trigger: ${profile.Reconciliation.LastTrigger}` : 'Watching for changes')}</div>
               </div>
               <span class="${pillClass}">${profileStatus}</span>
             </div>
@@ -742,6 +643,7 @@ public static class DashboardCommand
               <div class="stat"><div class="stat-label">Processed</div><div class="stat-value">${profile.ProcessedCount}</div></div>
               <div class="stat"><div class="stat-label">Failed</div><div class="stat-value">${profile.FailedCount}</div></div>
               <div class="stat"><div class="stat-label">Overflows</div><div class="stat-value">${profile.WatcherOverflowCount}</div></div>
+              <div class="stat"><div class="stat-label">Queued Reconciles</div><div class="stat-value">${pendingRequests.length}</div></div>
               <div class="stat"><div class="stat-label">Last Sync</div><div class="stat-value">${profile.LastSuccessfulSyncUtc ? new Date(profile.LastSuccessfulSyncUtc).toLocaleString() : 'n/a'}</div></div>
               <div class="stat"><div class="stat-label">Last Failure</div><div class="stat-value">${profile.LastFailure || 'n/a'}</div></div>
               <div class="stat"><div class="stat-label">Reconcile</div><div class="stat-value">${profile.Reconciliation?.LastExitDescription || 'n/a'}</div></div>

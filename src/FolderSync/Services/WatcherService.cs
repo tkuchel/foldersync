@@ -21,6 +21,7 @@ public sealed class WatcherService : IWatcherService
     private readonly IRuntimeHealthStore _healthStore;
     private readonly IClock _clock;
     private readonly ILogger<WatcherService> _logger;
+    private int _overflowSignalPending;
     private FileSystemWatcher? _watcher;
     private ChannelWriter<WatcherEvent>? _channel;
 
@@ -125,13 +126,7 @@ public sealed class WatcherService : IWatcherService
         var ex = e.GetException();
         _logger.LogError(ex, "FileSystemWatcher error — restarting watcher and requesting reconciliation");
 
-        // Enqueue overflow to trigger reconciliation
-        TryWrite(new WatcherEvent
-        {
-            Kind = WatcherChangeKind.Overflow,
-            FullPath = _options.SourcePath,
-            Timestamp = _clock.UtcNow
-        });
+        RequestOverflowReconciliation();
         _healthStore.RecordWatcherOverflow(_profileName);
 
         // Restart the watcher
@@ -180,15 +175,47 @@ public sealed class WatcherService : IWatcherService
                 "Event channel full — dropping {Kind} event for {Path} and requesting reconciliation",
                 watcherEvent.Kind, watcherEvent.FullPath);
 
-            // Try to enqueue an overflow event instead
-            _channel.TryWrite(new WatcherEvent
-            {
-                Kind = WatcherChangeKind.Overflow,
-                FullPath = _options.SourcePath,
-                Timestamp = _clock.UtcNow
-            });
+            RequestOverflowReconciliation();
             _healthStore.RecordWatcherOverflow(_profileName);
         }
+    }
+
+    private void RequestOverflowReconciliation()
+    {
+        if (_channel is null)
+            return;
+
+        var overflowEvent = new WatcherEvent
+        {
+            Kind = WatcherChangeKind.Overflow,
+            FullPath = _options.SourcePath,
+            Timestamp = _clock.UtcNow
+        };
+
+        if (_channel.TryWrite(overflowEvent))
+        {
+            Interlocked.Exchange(ref _overflowSignalPending, 0);
+            return;
+        }
+
+        if (Interlocked.Exchange(ref _overflowSignalPending, 1) == 1)
+            return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (_channel is not null)
+                    await _channel.WriteAsync(overflowEvent);
+            }
+            catch (ChannelClosedException)
+            {
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _overflowSignalPending, 0);
+            }
+        });
     }
 
     private void DisposeWatcher()

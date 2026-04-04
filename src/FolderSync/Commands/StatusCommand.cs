@@ -263,6 +263,13 @@ public static class StatusCommand
         if (pausedProfiles is { Count: > 0 })
             Console.WriteLine($"Paused profiles: {string.Join(", ", pausedProfiles)}");
 
+        var pendingReconcileRequests = report.Control?.ReconcileRequests
+            .OrderBy(request => request.RequestedAtUtc)
+            .Select(request => $"{request.ProfileName} ({request.Trigger} @ {request.RequestedAtUtc.LocalDateTime})")
+            .ToList();
+        if (pendingReconcileRequests is { Count: > 0 })
+            Console.WriteLine($"Pending reconcile requests: {string.Join(", ", pendingReconcileRequests)}");
+
         if (report.Profiles.Count > 0)
             Console.WriteLine($"Profiles: {string.Join(", ", report.Profiles)}");
 

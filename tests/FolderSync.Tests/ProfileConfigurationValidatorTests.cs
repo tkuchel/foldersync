@@ -72,6 +72,36 @@ public sealed class ProfileConfigurationValidatorTests : IDisposable
     }
 
     [Fact]
+    public void Validate_ReturnsError_ForOverlappingDestinations()
+    {
+        var sourceA = Path.Combine(_tempDir, "source-a");
+        var sourceB = Path.Combine(_tempDir, "source-b");
+        var destRoot = Path.Combine(_tempDir, "dest");
+        var nestedDest = Path.Combine(destRoot, "nested");
+        Directory.CreateDirectory(sourceA);
+        Directory.CreateDirectory(sourceB);
+
+        var profiles = new[]
+        {
+            new ResolvedProfile("a", new SyncOptions
+            {
+                SourcePath = sourceA,
+                DestinationPath = destRoot
+            }),
+            new ResolvedProfile("b", new SyncOptions
+            {
+                SourcePath = sourceB,
+                DestinationPath = nestedDest
+            })
+        };
+
+        var result = ProfileConfigurationValidator.Validate(profiles);
+
+        Assert.True(result.HasErrors);
+        Assert.Contains(result.Errors, e => e.Message.Contains("overlapping destination paths", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Validate_ReturnsWarning_WhenSyncDeletionsEnabled()
     {
         var source = Path.Combine(_tempDir, "source");

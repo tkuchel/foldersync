@@ -32,6 +32,7 @@ public sealed class ProfilePipeline : IDisposable
     private Task? _bufferTask;
     private Task? _reconcileTask;
     private Task? _processingTask;
+    private Task? _controlTask;
 
     public string ProfileName => _profileName;
 
@@ -110,6 +111,7 @@ public sealed class ProfilePipeline : IDisposable
         _bufferTask = _eventBuffer.RunAsync(_watcherChannel.Reader, _workItemChannel.Writer, stoppingToken);
         _reconcileTask = _reconciliation.SchedulePeriodicAsync(_watcherChannel.Writer, stoppingToken);
         _processingTask = ProcessWorkItemsAsync(stoppingToken);
+        _controlTask = MonitorControlRequestsAsync(stoppingToken);
 
         _logger.LogInformation("[{Profile}] Pipeline running", _profileName);
         _healthStore.RecordProfileState(_profileName, "Running");
@@ -117,7 +119,7 @@ public sealed class ProfilePipeline : IDisposable
         // Wait for all tasks to complete (they run until cancellation)
         try
         {
-            await Task.WhenAll(_bufferTask, _reconcileTask, _processingTask);
+            await Task.WhenAll(_bufferTask, _reconcileTask, _processingTask, _controlTask);
         }
         catch (OperationCanceledException)
         {
@@ -130,6 +132,28 @@ public sealed class ProfilePipeline : IDisposable
             _watcherChannel.Writer.TryComplete();
             _workItemChannel.Writer.TryComplete();
         }
+    }
+
+    private async Task MonitorControlRequestsAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                var request = _controlStore.TryDequeueReconcileRequest(_profileName);
+                if (request is not null)
+                {
+                    await WaitUntilResumedAsync(stoppingToken);
+                    _logger.LogInformation("[{Profile}] Processing control reconciliation request ({Trigger})",
+                        _profileName, request.Trigger);
+                    await _reconciliation.RunReconciliationAsync(request.Trigger, stoppingToken);
+                    continue;
+                }
+
+                await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+            }
+        }
+        catch (OperationCanceledException) { }
     }
 
     private async Task ProcessWorkItemsAsync(CancellationToken stoppingToken)

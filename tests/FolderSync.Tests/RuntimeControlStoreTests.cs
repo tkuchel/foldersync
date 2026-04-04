@@ -71,4 +71,73 @@ public sealed class RuntimeControlStoreTests
             tempDir.Delete(recursive: true);
         }
     }
+
+    [Fact]
+    public void Store_Serializes_Global_And_Profile_Updates_Through_Shared_File()
+    {
+        var clock = new FakeClock();
+        clock.Set(new DateTimeOffset(2026, 4, 2, 11, 30, 0, TimeSpan.Zero));
+        var tempDir = Directory.CreateTempSubdirectory();
+
+        try
+        {
+            var path = Path.Combine(tempDir.FullName, "foldersync-control.json");
+            var firstStore = new RuntimeControlStore(path, clock);
+            var secondStore = new RuntimeControlStore(path, clock);
+
+            firstStore.SetProfilePaused("alpha", true, "Index rebuild");
+            clock.Advance(TimeSpan.FromMinutes(1));
+            secondStore.SetPaused(true, "Maintenance window");
+
+            var snapshot = firstStore.Read();
+
+            Assert.True(snapshot.IsPaused);
+            Assert.Equal("Maintenance window", snapshot.Reason);
+            var profile = Assert.Single(snapshot.Profiles);
+            Assert.Equal("alpha", profile.Name);
+            Assert.True(profile.IsPaused);
+            Assert.Equal("Index rebuild", profile.Reason);
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Store_Queues_And_Dequeues_Profile_Reconcile_Requests()
+    {
+        var clock = new FakeClock();
+        clock.Set(new DateTimeOffset(2026, 4, 2, 12, 0, 0, TimeSpan.Zero));
+        var tempDir = Directory.CreateTempSubdirectory();
+
+        try
+        {
+            var path = Path.Combine(tempDir.FullName, "foldersync-control.json");
+            var store = new RuntimeControlStore(path, clock);
+
+            store.EnqueueReconcileRequest("alpha", "Dashboard");
+            store.EnqueueReconcileRequests(["beta", "gamma"], "Tray");
+
+            var first = store.TryDequeueReconcileRequest("alpha");
+            var second = store.TryDequeueReconcileRequest("beta");
+            var third = store.TryDequeueReconcileRequest("gamma");
+            var none = store.TryDequeueReconcileRequest("alpha");
+
+            Assert.NotNull(first);
+            Assert.Equal("alpha", first!.ProfileName);
+            Assert.Equal("Dashboard", first.Trigger);
+            Assert.NotNull(second);
+            Assert.Equal("beta", second!.ProfileName);
+            Assert.Equal("Tray", second.Trigger);
+            Assert.NotNull(third);
+            Assert.Equal("gamma", third!.ProfileName);
+            Assert.Null(none);
+            Assert.Empty(store.Read().ReconcileRequests);
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
 }

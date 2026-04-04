@@ -118,6 +118,39 @@ public sealed class RobocopyServiceTests
             Arg.Any<CancellationToken>(), Arg.Any<TimeSpan?>());
     }
 
+    [Theory]
+    [InlineData("/E /R:1")]
+    [InlineData("/R:1 /E")]
+    [InlineData("/R:1 /E /W:1")]
+    public async Task Arguments_RemoveRecursiveOption_WhenIncludeSubdirectoriesDisabled(string customOptions)
+    {
+        var testToken = TestContext.Current.CancellationToken;
+        string? capturedArgs = null;
+
+        var options = TestOptions.Create(
+            "C:\\Source",
+            "C:\\Dest",
+            o =>
+            {
+                o.IncludeSubdirectories = false;
+                o.Reconciliation.RobocopyOptions = customOptions;
+            });
+        var service = new RobocopyService(_processRunner, options, NullLogger<RobocopyService>.Instance);
+
+        _processRunner.RunAsync(
+            Arg.Any<string>(),
+            Arg.Do<string>(args => capturedArgs = args),
+            Arg.Any<CancellationToken>(),
+            Arg.Any<TimeSpan?>())
+            .Returns(new ProcessResult(0, "", ""));
+
+        await service.ReconcileAsync(testToken);
+
+        Assert.NotNull(capturedArgs);
+        Assert.DoesNotContain(" /E ", $" {capturedArgs} ", StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/LEV:1", capturedArgs, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void TryParseSummary_ExtractsFileAndDirectoryCounts()
     {

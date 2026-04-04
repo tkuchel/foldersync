@@ -118,6 +118,31 @@ public static class ProfileConfigurationValidator
                 }
             }
         }
+
+        var destinations = profiles
+            .Select(p => (p.Name, Path: NormalizePath(p.Options.DestinationPath)))
+            .ToList();
+
+        for (var i = 0; i < destinations.Count; i++)
+        {
+            for (var j = i + 1; j < destinations.Count; j++)
+            {
+                var a = destinations[i];
+                var b = destinations[j];
+
+                if (string.Equals(a.Path, b.Path, StringComparison.OrdinalIgnoreCase))
+                {
+                    result.AddError($"Profiles '{a.Name}' and '{b.Name}' share the same destination path: {a.Path}");
+                    continue;
+                }
+
+                if (IsUnderRoot(a.Path, b.Path) || IsUnderRoot(b.Path, a.Path))
+                {
+                    result.AddError(
+                        $"Profiles '{a.Name}' and '{b.Name}' have overlapping destination paths: {a.Path}, {b.Path}");
+                }
+            }
+        }
     }
 
     private static void ValidateDeletionSettings(
