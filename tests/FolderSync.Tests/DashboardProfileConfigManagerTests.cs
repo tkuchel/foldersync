@@ -224,6 +224,44 @@ public sealed class DashboardProfileConfigManagerTests : IDisposable
         Assert.DoesNotContain(result.Snapshot.Warnings, warning => warning.Contains("without explicit RobocopyOptions", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public void SaveProfile_Preserves_Sync_Mode_And_TwoWay_Settings()
+    {
+        var configPath = Path.Combine(_tempDir.FullName, "appsettings.json");
+        var sourceA = Directory.CreateDirectory(Path.Combine(_tempDir.FullName, "src-a")).FullName;
+        var destA = Directory.CreateDirectory(Path.Combine(_tempDir.FullName, "dst-a")).FullName;
+        File.WriteAllText(configPath, """
+        {
+          "FolderSync": {
+            "Profiles": []
+          }
+        }
+        """);
+
+        var result = DashboardProfileConfigManager.SaveProfile(configPath, new DashboardProfileEditRequest
+        {
+            Profile = new SyncProfileConfig
+            {
+                Name = "alpha",
+                SourcePath = sourceA,
+                DestinationPath = destA,
+                SyncMode = SyncMode.OneWay,
+                TwoWay = new TwoWayOptions
+                {
+                    StateStorePath = @"C:\FolderSync\state\alpha.json",
+                    ConflictMode = TwoWayConflictMode.Manual
+                }
+            }
+        });
+
+        Assert.True(result.Success);
+        var saved = result.Snapshot.Profiles.Single();
+        Assert.Equal(SyncMode.OneWay, saved.SyncMode);
+        Assert.NotNull(saved.TwoWay);
+        Assert.Equal(@"C:\FolderSync\state\alpha.json", saved.TwoWay!.StateStorePath);
+        Assert.Equal(TwoWayConflictMode.Manual, saved.TwoWay.ConflictMode);
+    }
+
     public void Dispose()
     {
         _tempDir.Delete(recursive: true);

@@ -714,6 +714,7 @@ public static class DashboardCommand
     .modal-stack { display:grid; gap: 12px; margin-top: 12px; }
     .modal-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
     .modal-section h3 { margin: 0 0 10px; font-size: 1rem; }
+    .modal-note { margin-top: 10px; padding: 10px 12px; border-radius: 14px; background: color-mix(in srgb, var(--warn-bg) 60%, var(--subtle)); color: var(--muted); border: 1px solid color-mix(in srgb, var(--warn) 25%, var(--border)); font-size: .88rem; line-height: 1.4; }
     .checkbox-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
     .checkbox-card { display:flex; align-items:flex-start; gap:12px; padding: 12px 14px; border-radius: 14px; background: var(--subtle); border: 1px solid var(--border); min-height: 58px; }
     .checkbox-card input[type="checkbox"] { min-width: 18px; width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); }
@@ -824,6 +825,21 @@ public static class DashboardCommand
         </label>
         <label>Delete archive path<input id="profile-delete-archive" type="text" placeholder="Optional archive path"></label>
         <label>Reconciliation interval (minutes)<input id="profile-reconcile-interval" type="number" min="1" step="1" placeholder="15"></label>
+      </div>
+      <div class="modal-section">
+        <h3>Sync mode</h3>
+        <div class="modal-grid">
+          <label>Mode
+            <select id="profile-sync-mode">
+              <option value="OneWay">One-way</option>
+              <option value="TwoWayPreview" disabled>Two-way preview (planned)</option>
+              <option value="TwoWaySafe" disabled>Two-way safe (planned)</option>
+              <option value="TwoWay" disabled>Two-way (planned)</option>
+            </select>
+          </label>
+          <label>Two-way state store path<input id="profile-twoway-state-store" type="text" placeholder="Planned future use" disabled></label>
+        </div>
+        <div class="modal-note">Bidirectional sync modes are planned but not active yet. Profiles currently run in one-way mode only, and validation will reject two-way modes until the preview engine is implemented.</div>
       </div>
       <div class="modal-section">
         <h3>Flags</h3>
@@ -1123,6 +1139,8 @@ public static class DashboardCommand
       setValue('profile-delete-mode', profile?.DeleteMode);
       setValue('profile-delete-archive', profile?.DeleteArchivePath);
       setValue('profile-reconcile-interval', profile?.Reconciliation?.IntervalMinutes);
+      setValue('profile-sync-mode', profile?.SyncMode || 'OneWay');
+      setValue('profile-twoway-state-store', profile?.TwoWay?.StateStorePath);
       setCheckbox('profile-include-subdirs', profile?.IncludeSubdirectories, true);
       setCheckbox('profile-sync-deletions', profile?.SyncDeletions, false);
       setCheckbox('profile-dry-run', profile?.DryRun, false);
@@ -1170,12 +1188,20 @@ public static class DashboardCommand
         Name: document.getElementById('profile-name').value.trim(),
         SourcePath: document.getElementById('profile-source').value.trim(),
         DestinationPath: document.getElementById('profile-destination').value.trim(),
+        SyncMode: document.getElementById('profile-sync-mode').value || 'OneWay',
         IncludeSubdirectories: document.getElementById('profile-include-subdirs').checked,
         SyncDeletions: document.getElementById('profile-sync-deletions').checked,
         DeleteMode: getNullableText('profile-delete-mode'),
         DeleteArchivePath: getNullableText('profile-delete-archive'),
         DryRun: document.getElementById('profile-dry-run').checked,
         Reconciliation: reconciliation,
+        TwoWay: {
+          StateStorePath: document.getElementById('profile-twoway-state-store').value.trim(),
+          RequireHashComparison: true,
+          PreferRenameDetection: true,
+          ConflictMode: 'Manual',
+          PropagateDeletes: false
+        },
         Exclusions: (exclusions.DirectoryNames.length || exclusions.FilePatterns.length || exclusions.Extensions.length)
           ? exclusions
           : null
