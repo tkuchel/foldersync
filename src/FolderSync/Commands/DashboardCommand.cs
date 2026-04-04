@@ -794,6 +794,10 @@ public static class DashboardCommand
     .history-item strong { display:block; margin-bottom:4px; }
     .history-meta { color: var(--muted); font-size: .85rem; }
     .conflicts { margin-top: 12px; display:grid; gap:10px; }
+    .conflict-groups { display:grid; gap:12px; margin-top:12px; }
+    .conflict-group { padding: 10px 12px; border-radius: 14px; background: var(--subtle); border: 1px solid var(--border); }
+    .conflict-group-head { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:10px; }
+    .conflict-group-title { font-weight: 700; }
     .conflict-item { padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--warn-bg) 55%, var(--subtle)); border: 1px solid color-mix(in srgb, var(--warn) 28%, var(--border)); }
     .conflict-item strong { display:block; margin-bottom:4px; }
     .toast { display:none; margin-top: 16px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--border); background: var(--subtle); }
@@ -885,6 +889,14 @@ public static class DashboardCommand
           <option value="failure">Failures only</option>
           <option value="reconcile">Reconciles only</option>
           <option value="watcher">Watcher events</option>
+        </select>
+      </label>
+      <label>
+        Conflict filter
+        <select id="conflict-filter">
+          <option value="all">All conflicts</option>
+          <option value="manual">Manual recommended</option>
+          <option value="recent">Detected in last 24h</option>
         </select>
       </label>
       <button id="pause-all">Pause all</button>
@@ -1362,6 +1374,31 @@ public static class DashboardCommand
       ];
     }
 
+    function getConflictFilter() {
+      return document.getElementById('conflict-filter').value || 'all';
+    }
+
+    function matchesConflictFilter(conflict, filter) {
+      if (!filter || filter === 'all') return true;
+      if (filter === 'manual') return String(conflict.RecommendedMode || '').toLowerCase() === 'manual';
+      if (filter === 'recent') {
+        const detectedAt = conflict.DetectedAtUtc ? new Date(conflict.DetectedAtUtc) : null;
+        return detectedAt && (Date.now() - detectedAt.getTime()) <= (24 * 60 * 60 * 1000);
+      }
+      return true;
+    }
+
+    function groupConflicts(conflicts) {
+      const groups = new Map();
+      for (const conflict of conflicts) {
+        const key = conflict.Reason || 'Other conflicts';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(conflict);
+      }
+
+      return [...groups.entries()].map(([reason, items]) => ({ reason, items }));
+    }
+
     function collapseActivities(activities) {
       const source = Array.isArray(activities) ? activities : [];
       const collapsed = [];
@@ -1448,6 +1485,8 @@ public static class DashboardCommand
           const filteredActivities = collapsedActivities.filter(item => matchesActivityFilter(item, getActivityFilter()));
           const summaryChips = summarizeActivities(collapsedActivities).map(text => `<span class="summary-chip">${escapeHtml(text)}</span>`).join('');
           const previewConflicts = previewStatus?.Conflicts || [];
+          const filteredConflicts = previewConflicts.filter(conflict => matchesConflictFilter(conflict, getConflictFilter()));
+          const groupedConflicts = groupConflicts(filteredConflicts);
           const div = document.createElement('div');
           div.className = 'profile';
           const pillClass = profileStatusClass(profile);
@@ -1514,17 +1553,33 @@ public static class DashboardCommand
               </div>
             </details>
             <details class="history" data-profile="${safeName}-conflicts">
-              <summary><span class="toggle secondary">Preview conflicts (${previewConflicts.length})</span></summary>
+              <summary><span class="toggle secondary">Preview conflicts (${filteredConflicts.length}/${previewConflicts.length})</span></summary>
               <div class="conflicts">
-                ${previewConflicts.length === 0
+                ${filteredConflicts.length === 0
                   ? '<div class="history-item"><strong>No preview conflicts</strong><div class="history-meta">Run a two-way preview scan to populate conflict details.</div></div>'
-                  : previewConflicts.map(conflict => `
-                    <div class="conflict-item">
-                      <strong>${escapeHtml(conflict.RelativePath)}</strong>
-                      <div class="history-meta">${new Date(conflict.DetectedAtUtc).toLocaleString()} • Recommended: ${escapeHtml(conflict.RecommendedMode)}</div>
-                      <div>${escapeHtml(conflict.Reason)}</div>
+                  : `<div class="summary-strip">
+                      <span class="summary-chip">Total ${filteredConflicts.length}</span>
+                      <span class="summary-chip">Groups ${groupedConflicts.length}</span>
+                      <span class="summary-chip">Manual ${filteredConflicts.filter(item => String(item.RecommendedMode || '').toLowerCase() === 'manual').length}</span>
                     </div>
+                    <div class="conflict-groups">
+                    ${groupedConflicts.map(group => `
+                      <div class="conflict-group">
+                        <div class="conflict-group-head">
+                          <div class="conflict-group-title">${escapeHtml(group.reason)}</div>
+                          <span class="pill warn">${group.items.length}</span>
+                        </div>
+                        <div class="conflicts">
+                          ${group.items.map(conflict => `
+                            <div class="conflict-item">
+                              <strong>${escapeHtml(conflict.RelativePath)}</strong>
+                              <div class="history-meta">${new Date(conflict.DetectedAtUtc).toLocaleString()} • Recommended: ${escapeHtml(conflict.RecommendedMode)}</div>
+                            </div>
+                          `).join('')}
+                        </div>
+                      </div>
                     `).join('')}
+                    </div>`}
               </div>
             </details>
             ${profile.AlertMessage ? `<pre>${escapeHtml(profile.AlertMessage)}</pre>` : ''}
@@ -1570,6 +1625,10 @@ public static class DashboardCommand
     });
 
     document.getElementById('activity-filter').addEventListener('change', () => {
+      refresh();
+    });
+
+    document.getElementById('conflict-filter').addEventListener('change', () => {
       refresh();
     });
 
