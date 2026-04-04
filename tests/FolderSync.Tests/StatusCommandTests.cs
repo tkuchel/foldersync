@@ -63,6 +63,11 @@ public sealed class StatusCommandTests
                     {
                       "name": "alpha",
                       "state": "Running",
+                      "watcherState": "Watching",
+                      "watcherStartedAtUtc": "2026-04-02T10:01:00+00:00",
+                      "lastWatcherEventUtc": "2026-04-02T10:04:00+00:00",
+                      "lastWatcherEventKind": "Updated",
+                      "lastWatcherPath": "C:\\source\\file.txt",
                       "processedCount": 9,
                       "succeededCount": 8,
                       "skippedCount": 2,
@@ -85,6 +90,9 @@ public sealed class StatusCommandTests
             Assert.Equal("Running", snapshot!.ServiceState);
             var profile = Assert.Single(snapshot.Profiles);
             Assert.Equal("alpha", profile.Name);
+            Assert.Equal("Watching", profile.WatcherState);
+            Assert.Equal("Updated", profile.LastWatcherEventKind);
+            Assert.Equal(@"C:\source\file.txt", profile.LastWatcherPath);
             Assert.Equal(9, profile.ProcessedCount);
             Assert.Equal(3, profile.Reconciliation.RunCount);
             Assert.Equal("Overflow", profile.Reconciliation.LastTrigger);
@@ -135,6 +143,11 @@ public sealed class StatusCommandTests
                 {
                   "name": "alpha",
                   "state": "Running",
+                  "watcherState": "Watching",
+                  "watcherStartedAtUtc": "2026-04-02T10:01:00+00:00",
+                  "lastWatcherEventUtc": "2026-04-02T10:04:00+00:00",
+                  "lastWatcherEventKind": "Updated",
+                  "lastWatcherPath": "C:\\source\\file.txt",
                   "processedCount": 9,
                   "succeededCount": 8,
                   "skippedCount": 2,
@@ -159,6 +172,8 @@ public sealed class StatusCommandTests
             Assert.Equal("alpha", Assert.Single(report.Profiles));
             Assert.NotNull(report.Runtime);
             Assert.Equal(3, report.Runtime!.Profiles[0].Reconciliation.RunCount);
+            Assert.Equal("Watching", report.Runtime.Profiles[0].WatcherState);
+            Assert.Equal("Updated", report.Runtime.Profiles[0].LastWatcherEventKind);
             Assert.NotNull(report.RecentActivity);
             Assert.Contains("Reconciliation completed", report.RecentActivity!.LastReconcile);
             Assert.Contains("Synced docs\\file.txt", report.RecentActivity.LastSync);
@@ -340,6 +355,11 @@ public sealed class StatusCommandTests
                     {
                         Name = "alpha",
                         State = "Running",
+                        WatcherState = "Watching",
+                        WatcherStartedAtUtc = DateTimeOffset.Parse("2026-04-02T10:01:00+00:00"),
+                        LastWatcherEventUtc = DateTimeOffset.Parse("2026-04-02T10:04:00+00:00"),
+                        LastWatcherEventKind = "Updated",
+                        LastWatcherPath = @"C:\source\file.txt",
                         IsPaused = true,
                         PauseReason = "Index rebuild",
                         ProcessedCount = 9,
@@ -360,6 +380,8 @@ public sealed class StatusCommandTests
         Assert.Contains("\"Status\":\"Running\"", json);
         Assert.Contains("\"Name\":\"alpha\"", json);
         Assert.Contains("\"WatcherOverflowCount\":2", json);
+        Assert.Contains("\"WatcherState\":\"Watching\"", json);
+        Assert.Contains("\"LastWatcherEventKind\":\"Updated\"", json);
         Assert.Contains("\"AlertLevel\":\"warning\"", json);
         Assert.Contains("\"IsPaused\":true", json);
         Assert.Contains("\"PauseReason\":\"Maintenance window\"", json);

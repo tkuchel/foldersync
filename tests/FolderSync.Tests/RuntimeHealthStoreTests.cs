@@ -23,6 +23,7 @@ public sealed class RuntimeHealthStoreTests
             store.Initialize(["alpha"]);
             store.RecordServiceStarted();
             store.RecordProfileState("alpha", "Running");
+            store.RecordWatcherStarted("alpha");
 
             var workItem = new SyncWorkItem
             {
@@ -30,6 +31,14 @@ public sealed class RuntimeHealthStoreTests
                 SourcePath = @"C:\source\file.txt",
                 DestinationPath = @"C:\dest\file.txt"
             };
+
+            store.RecordWatcherEventObserved("alpha", new WatcherEvent
+            {
+                Kind = WatcherChangeKind.Created,
+                FullPath = workItem.SourcePath,
+                Timestamp = clock.UtcNow,
+                IsDirectory = false
+            });
 
             store.RecordSyncResult("alpha", new SyncResult(true, workItem, TimeSpan.FromMilliseconds(12)));
             store.RecordSyncResult("alpha", new SyncResult(true, workItem, TimeSpan.Zero, "Unchanged", IsSkipped: true));
@@ -64,6 +73,13 @@ public sealed class RuntimeHealthStoreTests
             var profile = Assert.Single(snapshot.Profiles);
             Assert.Equal("alpha", profile.Name);
             Assert.Equal("Running", profile.State);
+            Assert.Equal("Recovering", profile.WatcherState);
+            Assert.NotNull(profile.WatcherStartedAtUtc);
+            Assert.NotNull(profile.LastWatcherEventUtc);
+            Assert.Equal("Created", profile.LastWatcherEventKind);
+            Assert.Equal(workItem.SourcePath, profile.LastWatcherPath);
+            Assert.NotNull(profile.LastWatcherErrorUtc);
+            Assert.Equal("Watcher overflow triggered reconciliation", profile.LastWatcherError);
             Assert.Equal(3, profile.ProcessedCount);
             Assert.Equal(2, profile.SucceededCount);
             Assert.Equal(2, profile.SkippedCount);
@@ -85,6 +101,37 @@ public sealed class RuntimeHealthStoreTests
             Assert.Contains(profile.RecentActivities, activity => activity.Kind == "failure");
             Assert.Contains(profile.RecentActivities, activity => activity.Kind == "overflow");
             Assert.Contains(profile.RecentActivities, activity => activity.Kind == "reconcile");
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Store_Records_Watcher_Restart_Metadata()
+    {
+        var clock = new FakeClock();
+        var tempDir = Directory.CreateTempSubdirectory();
+
+        try
+        {
+            var snapshotPath = Path.Combine(tempDir.FullName, "foldersync-health.json");
+            var store = new RuntimeHealthStore(snapshotPath, clock, new FakeAlertNotifier(), NullLogger<RuntimeHealthStore>.Instance);
+            store.Initialize(["alpha"]);
+            store.RecordWatcherStarted("alpha");
+
+            clock.Advance(TimeSpan.FromSeconds(10));
+            store.RecordWatcherRestarted("alpha", "The directory name is invalid.");
+
+            var snapshot = StatusCommand.TryReadRuntimeHealthSnapshot(snapshotPath);
+            var profile = Assert.Single(snapshot!.Profiles);
+
+            Assert.Equal("Watching", profile.WatcherState);
+            Assert.NotNull(profile.LastWatcherRestartUtc);
+            Assert.NotNull(profile.LastWatcherErrorUtc);
+            Assert.Equal("The directory name is invalid.", profile.LastWatcherError);
+            Assert.Contains(profile.RecentActivities, activity => activity.Kind == "watcher");
         }
         finally
         {

@@ -46,12 +46,14 @@ public sealed class WatcherService : IWatcherService
     {
         _channel = eventChannel;
         CreateAndStartWatcher();
+        _healthStore.RecordWatcherStarted(_profileName);
         _logger.LogInformation("File watcher started for {SourcePath}", _options.SourcePath);
     }
 
     public void Stop()
     {
         DisposeWatcher();
+        _healthStore.RecordWatcherStopped(_profileName);
         _logger.LogInformation("File watcher stopped");
     }
 
@@ -138,6 +140,7 @@ public sealed class WatcherService : IWatcherService
         try
         {
             CreateAndStartWatcher();
+            _healthStore.RecordWatcherRestarted(_profileName, ex.Message);
             _logger.LogInformation("FileSystemWatcher restarted successfully");
         }
         catch (Exception restartEx)
@@ -174,21 +177,24 @@ public sealed class WatcherService : IWatcherService
         if (_channel is null)
             return;
 
-        if (!_channel.TryWrite(watcherEvent))
+        if (_channel.TryWrite(watcherEvent))
         {
-            _logger.LogWarning(
-                "Event channel full — dropping {Kind} event for {Path} and requesting reconciliation",
-                watcherEvent.Kind, watcherEvent.FullPath);
-
-            // Try to enqueue an overflow event instead
-            _channel.TryWrite(new WatcherEvent
-            {
-                Kind = WatcherChangeKind.Overflow,
-                FullPath = _options.SourcePath,
-                Timestamp = _clock.UtcNow
-            });
-            _healthStore.RecordWatcherOverflow(_profileName);
+            _healthStore.RecordWatcherEventObserved(_profileName, watcherEvent);
+            return;
         }
+
+        _logger.LogWarning(
+            "Event channel full — dropping {Kind} event for {Path} and requesting reconciliation",
+            watcherEvent.Kind, watcherEvent.FullPath);
+
+        // Try to enqueue an overflow event instead
+        _channel.TryWrite(new WatcherEvent
+        {
+            Kind = WatcherChangeKind.Overflow,
+            FullPath = _options.SourcePath,
+            Timestamp = _clock.UtcNow
+        });
+        _healthStore.RecordWatcherOverflow(_profileName);
     }
 
     private void DisposeWatcher()

@@ -15,6 +15,10 @@ public interface IRuntimeHealthStore
     void RecordPauseState(bool paused, string? reason, DateTimeOffset? changedAtUtc);
     void RecordProfilePauseState(string profileName, bool paused, string? reason, DateTimeOffset? changedAtUtc);
     void RecordProfileState(string profileName, string state);
+    void RecordWatcherStarted(string profileName);
+    void RecordWatcherStopped(string profileName);
+    void RecordWatcherEventObserved(string profileName, WatcherEvent watcherEvent);
+    void RecordWatcherRestarted(string profileName, string errorMessage);
     void RecordWatcherOverflow(string profileName);
     void RecordSyncResult(string profileName, SyncResult result);
     void RecordReconciliationStarted(string profileName, string trigger);
@@ -25,6 +29,7 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
 {
     private const int ConsecutiveFailureAlertThreshold = 3;
     private const int OverflowAlertThreshold = 3;
+    private static readonly TimeSpan WatcherEventPersistInterval = TimeSpan.FromSeconds(5);
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
@@ -143,11 +148,73 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
         }
     }
 
+    public void RecordWatcherStarted(string profileName)
+    {
+        lock (_gate)
+        {
+            var profile = GetProfile(profileName);
+            profile.WatcherState = "Watching";
+            profile.WatcherStartedAtUtc ??= _clock.UtcNow;
+            PersistLocked();
+        }
+    }
+
+    public void RecordWatcherStopped(string profileName)
+    {
+        lock (_gate)
+        {
+            var profile = GetProfile(profileName);
+            profile.WatcherState = "Stopped";
+            PersistLocked();
+        }
+    }
+
+    public void RecordWatcherEventObserved(string profileName, WatcherEvent watcherEvent)
+    {
+        lock (_gate)
+        {
+            var profile = GetProfile(profileName);
+            var now = _clock.UtcNow;
+            var shouldPersist = profile.LastWatcherEventUtc is null || (now - profile.LastWatcherEventUtc.Value) >= WatcherEventPersistInterval;
+
+            profile.WatcherState = "Watching";
+            profile.LastWatcherEventUtc = now;
+            profile.LastWatcherEventKind = watcherEvent.Kind.ToString();
+            profile.LastWatcherPath = watcherEvent.FullPath;
+
+            if (shouldPersist)
+                PersistLocked();
+        }
+    }
+
+    public void RecordWatcherRestarted(string profileName, string errorMessage)
+    {
+        lock (_gate)
+        {
+            var profile = GetProfile(profileName);
+            profile.WatcherState = "Watching";
+            profile.LastWatcherErrorUtc = _clock.UtcNow;
+            profile.LastWatcherRestartUtc = _clock.UtcNow;
+            profile.LastWatcherError = errorMessage;
+            profile.AddActivity(new ProfileActivitySnapshot
+            {
+                Kind = "watcher",
+                Summary = "Watcher restarted after error",
+                TimestampUtc = _clock.UtcNow,
+                Details = errorMessage
+            });
+            PersistLocked();
+        }
+    }
+
     public void RecordWatcherOverflow(string profileName)
     {
         lock (_gate)
         {
             var profile = GetProfile(profileName);
+            profile.WatcherState = "Recovering";
+            profile.LastWatcherErrorUtc = _clock.UtcNow;
+            profile.LastWatcherError = "Watcher overflow triggered reconciliation";
             profile.WatcherOverflowCount++;
             profile.ConsecutiveOverflowCount++;
             profile.AddActivity(new ProfileActivitySnapshot

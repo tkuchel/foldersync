@@ -19,6 +19,14 @@ public sealed class ProfileHealthSnapshot
 
     public required string Name { get; init; }
     public string State { get; set; } = "Starting";
+    public string WatcherState { get; set; } = "Starting";
+    public DateTimeOffset? WatcherStartedAtUtc { get; set; }
+    public DateTimeOffset? LastWatcherEventUtc { get; set; }
+    public string? LastWatcherEventKind { get; set; }
+    public string? LastWatcherPath { get; set; }
+    public DateTimeOffset? LastWatcherErrorUtc { get; set; }
+    public DateTimeOffset? LastWatcherRestartUtc { get; set; }
+    public string? LastWatcherError { get; set; }
     public bool IsPaused { get; set; }
     public string? PauseReason { get; set; }
     public DateTimeOffset? PausedAtUtc { get; set; }

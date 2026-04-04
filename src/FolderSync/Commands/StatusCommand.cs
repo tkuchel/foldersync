@@ -434,6 +434,15 @@ public static class StatusCommand
             Console.WriteLine($"Profile {profile.Name}:");
             Console.WriteLine(
                 $"  state={profile.State}, processed={profile.ProcessedCount}, succeeded={profile.SucceededCount}, skipped={profile.SkippedCount}, failed={profile.FailedCount}, overflows={profile.WatcherOverflowCount}");
+            Console.WriteLine($"  watcher={profile.WatcherState}");
+            if (profile.WatcherStartedAtUtc is not null)
+                Console.WriteLine($"  watcher started={profile.WatcherStartedAtUtc.Value.LocalDateTime}");
+            if (profile.LastWatcherEventUtc is not null)
+                Console.WriteLine($"  watcher last event={profile.LastWatcherEventUtc.Value.LocalDateTime} ({profile.LastWatcherEventKind ?? "Unknown"})");
+            if (profile.LastWatcherRestartUtc is not null)
+                Console.WriteLine($"  watcher last restart={profile.LastWatcherRestartUtc.Value.LocalDateTime}");
+            if (profile.LastWatcherErrorUtc is not null && !string.IsNullOrWhiteSpace(profile.LastWatcherError))
+                Console.WriteLine($"  watcher last error={profile.LastWatcherErrorUtc.Value.LocalDateTime}: {profile.LastWatcherError}");
             if (profile.IsPaused)
                 Console.WriteLine($"  pause={profile.PauseReason ?? "Paused by operator"}");
             if (!string.IsNullOrWhiteSpace(profile.AlertMessage))

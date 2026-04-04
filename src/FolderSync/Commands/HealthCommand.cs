@@ -21,6 +21,14 @@ public static class HealthCommand
     {
         public required string Name { get; init; }
         public required string State { get; init; }
+        public string? WatcherState { get; init; }
+        public DateTimeOffset? WatcherStartedAtUtc { get; init; }
+        public DateTimeOffset? LastWatcherEventUtc { get; init; }
+        public string? LastWatcherEventKind { get; init; }
+        public string? LastWatcherPath { get; init; }
+        public DateTimeOffset? LastWatcherErrorUtc { get; init; }
+        public DateTimeOffset? LastWatcherRestartUtc { get; init; }
+        public string? LastWatcherError { get; init; }
         public bool IsPaused { get; init; }
         public string? PauseReason { get; init; }
         public DateTimeOffset? PausedAtUtc { get; init; }
@@ -109,6 +117,14 @@ public static class HealthCommand
             {
                 Name = profile.Name,
                 State = profile.State,
+                WatcherState = profile.WatcherState,
+                WatcherStartedAtUtc = profile.WatcherStartedAtUtc,
+                LastWatcherEventUtc = profile.LastWatcherEventUtc,
+                LastWatcherEventKind = profile.LastWatcherEventKind,
+                LastWatcherPath = profile.LastWatcherPath,
+                LastWatcherErrorUtc = profile.LastWatcherErrorUtc,
+                LastWatcherRestartUtc = profile.LastWatcherRestartUtc,
+                LastWatcherError = profile.LastWatcherError,
                 IsPaused = profile.IsPaused,
                 PauseReason = profile.PauseReason,
                 PausedAtUtc = profile.PausedAtUtc,

@@ -1129,6 +1129,21 @@ public static class DashboardCommand
       return profile.Name.toLowerCase().includes(filterText.toLowerCase());
     }
 
+    function formatTimestamp(value) {
+      return value ? new Date(value).toLocaleString() : 'n/a';
+    }
+
+    function formatWatcherSummary(profile) {
+      const state = profile.WatcherState || 'Unknown';
+      if (profile.LastWatcherEventUtc) {
+        return `${state} • last event ${formatTimestamp(profile.LastWatcherEventUtc)}`;
+      }
+      if (profile.WatcherStartedAtUtc) {
+        return `${state} • started ${formatTimestamp(profile.WatcherStartedAtUtc)}`;
+      }
+      return state;
+    }
+
     function profileStatusClass(profile) {
       if (profile.AlertMessage) return 'pill warn';
       if (profile.FailedCount > 0 && !profile.LastSuccessfulSyncUtc) return 'pill error';
@@ -1166,10 +1181,19 @@ public static class DashboardCommand
           const profileStatus = profile.IsPaused ? `Paused${profile.PauseReason ? `: ${profile.PauseReason}` : ''}` : (profile.AlertMessage ? profile.AlertLevel : profile.State);
           const historyOpen = expandedProfiles.has(profile.Name) ? 'open' : '';
           const safeName = escapeHtml(profile.Name);
-          const safeSubtitle = escapeHtml(profile.Reconciliation?.LastTrigger ? `Last trigger: ${profile.Reconciliation.LastTrigger}` : 'Watching for changes');
+          const safeSubtitle = escapeHtml(profile.Reconciliation?.LastTrigger
+            ? `Last trigger: ${profile.Reconciliation.LastTrigger} • ${formatWatcherSummary(profile)}`
+            : formatWatcherSummary(profile));
           const safeStatus = escapeHtml(profileStatus || 'Unknown');
           const safeLastFailure = escapeHtml(profile.LastFailure || 'n/a');
           const safeReconcile = escapeHtml(profile.Reconciliation?.LastExitDescription || 'n/a');
+          const safeWatcherState = escapeHtml(profile.WatcherState || 'Unknown');
+          const safeWatcherEvent = escapeHtml(profile.LastWatcherEventUtc
+            ? `${formatTimestamp(profile.LastWatcherEventUtc)}${profile.LastWatcherEventKind ? ` (${profile.LastWatcherEventKind})` : ''}`
+            : 'No events observed yet');
+          const safeWatcherError = escapeHtml(profile.LastWatcherError
+            ? `${formatTimestamp(profile.LastWatcherErrorUtc)}: ${profile.LastWatcherError}`
+            : 'n/a');
           div.innerHTML = `
             <div class="profile-head">
               <div class="profile-title">
@@ -1182,8 +1206,11 @@ public static class DashboardCommand
               <div class="stat"><div class="stat-label">Processed</div><div class="stat-value">${profile.ProcessedCount}</div></div>
               <div class="stat"><div class="stat-label">Failed</div><div class="stat-value">${profile.FailedCount}</div></div>
               <div class="stat"><div class="stat-label">Overflows</div><div class="stat-value">${profile.WatcherOverflowCount}</div></div>
-              <div class="stat"><div class="stat-label">Last Sync</div><div class="stat-value">${profile.LastSuccessfulSyncUtc ? new Date(profile.LastSuccessfulSyncUtc).toLocaleString() : 'n/a'}</div></div>
+              <div class="stat"><div class="stat-label">Watcher</div><div class="stat-value">${safeWatcherState}</div></div>
+              <div class="stat"><div class="stat-label">Last Event</div><div class="stat-value">${safeWatcherEvent}</div></div>
+              <div class="stat"><div class="stat-label">Last Sync</div><div class="stat-value">${formatTimestamp(profile.LastSuccessfulSyncUtc)}</div></div>
               <div class="stat"><div class="stat-label">Last Failure</div><div class="stat-value">${safeLastFailure}</div></div>
+              <div class="stat"><div class="stat-label">Watcher Error</div><div class="stat-value">${safeWatcherError}</div></div>
               <div class="stat"><div class="stat-label">Reconcile</div><div class="stat-value">${safeReconcile}</div></div>
             </div>
             <div class="actions">
