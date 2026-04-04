@@ -419,7 +419,17 @@ public static class StatusCommand
                         SyncMode = syncMode.ToString(),
                         StateStorePath = stateStorePath,
                         UpdatedAtUtc = snapshot?.UpdatedAtUtc,
-                        ConflictCount = snapshot?.Conflicts.Count ?? 0
+                        ConflictCount = snapshot?.Conflicts.Count ?? 0,
+                        Conflicts = snapshot?.Conflicts
+                            .OrderByDescending(conflict => conflict.DetectedAtUtc)
+                            .Select(conflict => new TwoWayConflictSummary
+                            {
+                                RelativePath = conflict.RelativePath,
+                                Reason = conflict.Reason,
+                                DetectedAtUtc = conflict.DetectedAtUtc,
+                                RecommendedMode = conflict.RecommendedMode.ToString()
+                            })
+                            .ToList() ?? []
                     };
                 })
                 .ToList();

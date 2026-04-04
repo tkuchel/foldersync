@@ -793,6 +793,9 @@ public static class DashboardCommand
     .history-item.skip-bundle { border-color: color-mix(in srgb, var(--accent) 24%, var(--border)); background: color-mix(in srgb, var(--success-bg) 45%, var(--subtle)); }
     .history-item strong { display:block; margin-bottom:4px; }
     .history-meta { color: var(--muted); font-size: .85rem; }
+    .conflicts { margin-top: 12px; display:grid; gap:10px; }
+    .conflict-item { padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--warn-bg) 55%, var(--subtle)); border: 1px solid color-mix(in srgb, var(--warn) 28%, var(--border)); }
+    .conflict-item strong { display:block; margin-bottom:4px; }
     .toast { display:none; margin-top: 16px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--border); background: var(--subtle); }
     .toast.error { border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); color: var(--danger); background: var(--danger-bg); }
     .toast.success { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); color: var(--accent); background: var(--success-bg); }
@@ -1444,6 +1447,7 @@ public static class DashboardCommand
           const collapsedActivities = collapseActivities(profile.RecentActivities || []);
           const filteredActivities = collapsedActivities.filter(item => matchesActivityFilter(item, getActivityFilter()));
           const summaryChips = summarizeActivities(collapsedActivities).map(text => `<span class="summary-chip">${escapeHtml(text)}</span>`).join('');
+          const previewConflicts = previewStatus?.Conflicts || [];
           const div = document.createElement('div');
           div.className = 'profile';
           const pillClass = profileStatusClass(profile);
@@ -1505,6 +1509,20 @@ public static class DashboardCommand
                       <strong>${escapeHtml(item.Summary)}</strong>
                       <div class="history-meta">${new Date(item.TimestampUtc).toLocaleString()}${item.RelativePath ? ` • ${escapeHtml(item.RelativePath)}` : ''}${item.DisplayMetaExtra ? ` • ${escapeHtml(item.DisplayMetaExtra)}` : ''}</div>
                       ${item.Details ? `<div>${escapeHtml(item.Details)}</div>` : ''}
+                    </div>
+                    `).join('')}
+              </div>
+            </details>
+            <details class="history" data-profile="${safeName}-conflicts">
+              <summary><span class="toggle secondary">Preview conflicts (${previewConflicts.length})</span></summary>
+              <div class="conflicts">
+                ${previewConflicts.length === 0
+                  ? '<div class="history-item"><strong>No preview conflicts</strong><div class="history-meta">Run a two-way preview scan to populate conflict details.</div></div>'
+                  : previewConflicts.map(conflict => `
+                    <div class="conflict-item">
+                      <strong>${escapeHtml(conflict.RelativePath)}</strong>
+                      <div class="history-meta">${new Date(conflict.DetectedAtUtc).toLocaleString()} • Recommended: ${escapeHtml(conflict.RecommendedMode)}</div>
+                      <div>${escapeHtml(conflict.Reason)}</div>
                     </div>
                     `).join('')}
               </div>

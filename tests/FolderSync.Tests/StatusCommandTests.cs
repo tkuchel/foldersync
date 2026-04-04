@@ -207,6 +207,10 @@ public sealed class StatusCommandTests
             Assert.Equal("alpha", preview.ProfileName);
             Assert.Equal("TwoWayPreview", preview.SyncMode);
             Assert.Equal(1, preview.ConflictCount);
+            var conflict = Assert.Single(preview.Conflicts);
+            Assert.Equal("docs/file.txt", conflict.RelativePath);
+            Assert.Equal("Manual", conflict.RecommendedMode);
+            Assert.Contains("Changed on both sides", conflict.Reason);
             Assert.NotNull(report.RecentActivity);
             Assert.Contains("Reconciliation completed", report.RecentActivity!.LastReconcile);
             Assert.Contains("Synced docs\\file.txt", report.RecentActivity.LastSync);
