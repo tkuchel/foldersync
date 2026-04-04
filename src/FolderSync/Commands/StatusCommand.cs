@@ -420,6 +420,7 @@ public static class StatusCommand
                         StateStorePath = stateStorePath,
                         UpdatedAtUtc = snapshot?.UpdatedAtUtc,
                         ConflictCount = snapshot?.Conflicts.Count ?? 0,
+                        AcknowledgedConflictCount = snapshot?.Conflicts.Count(conflict => conflict.IsAcknowledged) ?? 0,
                         Conflicts = snapshot?.Conflicts
                             .OrderByDescending(conflict => conflict.DetectedAtUtc)
                             .Select(conflict => new TwoWayConflictSummary
@@ -427,7 +428,9 @@ public static class StatusCommand
                                 RelativePath = conflict.RelativePath,
                                 Reason = conflict.Reason,
                                 DetectedAtUtc = conflict.DetectedAtUtc,
-                                RecommendedMode = conflict.RecommendedMode.ToString()
+                                RecommendedMode = conflict.RecommendedMode.ToString(),
+                                IsAcknowledged = conflict.IsAcknowledged,
+                                AcknowledgedAtUtc = conflict.AcknowledgedAtUtc
                             })
                             .ToList() ?? []
                     };

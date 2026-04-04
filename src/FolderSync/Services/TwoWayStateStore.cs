@@ -8,6 +8,7 @@ public interface ITwoWayStateStore
     TwoWayStateSnapshot Load();
     void Save(TwoWayStateSnapshot snapshot);
     void ApplyPreviewResult(TwoWayPreviewResult result, DateTimeOffset updatedAtUtc);
+    bool AcknowledgeConflict(string relativePath, DateTimeOffset acknowledgedAtUtc);
 }
 
 public sealed class JsonTwoWayStateStore(string path) : ITwoWayStateStore
@@ -40,8 +41,23 @@ public sealed class JsonTwoWayStateStore(string path) : ITwoWayStateStore
     public void ApplyPreviewResult(TwoWayPreviewResult result, DateTimeOffset updatedAtUtc)
     {
         var snapshot = Load();
+        var existingConflicts = snapshot.Conflicts.ToDictionary(
+            conflict => GetConflictKey(conflict.RelativePath, conflict.Reason),
+            conflict => conflict,
+            StringComparer.OrdinalIgnoreCase);
+
         snapshot.UpdatedAtUtc = updatedAtUtc;
         snapshot.Conflicts = result.Conflicts
+            .Select(conflict =>
+            {
+                if (existingConflicts.TryGetValue(GetConflictKey(conflict.RelativePath, conflict.Reason), out var existing))
+                {
+                    conflict.IsAcknowledged = existing.IsAcknowledged;
+                    conflict.AcknowledgedAtUtc = existing.AcknowledgedAtUtc;
+                }
+
+                return conflict;
+            })
             .OrderBy(conflict => conflict.RelativePath, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -65,5 +81,25 @@ public sealed class JsonTwoWayStateStore(string path) : ITwoWayStateStore
             .ToList();
 
         Save(snapshot);
+    }
+
+    public bool AcknowledgeConflict(string relativePath, DateTimeOffset acknowledgedAtUtc)
+    {
+        var snapshot = Load();
+        var conflict = snapshot.Conflicts.FirstOrDefault(item =>
+            string.Equals(item.RelativePath, relativePath, StringComparison.OrdinalIgnoreCase));
+        if (conflict is null)
+            return false;
+
+        conflict.IsAcknowledged = true;
+        conflict.AcknowledgedAtUtc = acknowledgedAtUtc;
+        snapshot.UpdatedAtUtc = acknowledgedAtUtc;
+        Save(snapshot);
+        return true;
+    }
+
+    private static string GetConflictKey(string relativePath, string reason)
+    {
+        return $"{relativePath}|{reason}";
     }
 }

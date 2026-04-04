@@ -33,6 +33,8 @@ public sealed class TwoWayConflictRecord
     public string Reason { get; set; } = string.Empty;
     public DateTimeOffset DetectedAtUtc { get; set; }
     public TwoWayConflictMode RecommendedMode { get; set; } = TwoWayConflictMode.Manual;
+    public bool IsAcknowledged { get; set; }
+    public DateTimeOffset? AcknowledgedAtUtc { get; set; }
 }
 
 public sealed class TwoWayPreviewResult

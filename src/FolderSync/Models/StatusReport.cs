@@ -41,6 +41,7 @@ public sealed class TwoWayPreviewStatus
     public string? StateStorePath { get; set; }
     public DateTimeOffset? UpdatedAtUtc { get; set; }
     public int ConflictCount { get; set; }
+    public int AcknowledgedConflictCount { get; set; }
     public List<TwoWayConflictSummary> Conflicts { get; set; } = [];
 }
 
@@ -50,4 +51,6 @@ public sealed class TwoWayConflictSummary
     public required string Reason { get; set; }
     public DateTimeOffset DetectedAtUtc { get; set; }
     public string RecommendedMode { get; set; } = "Manual";
+    public bool IsAcknowledged { get; set; }
+    public DateTimeOffset? AcknowledgedAtUtc { get; set; }
 }

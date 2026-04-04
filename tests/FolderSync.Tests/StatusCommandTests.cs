@@ -149,7 +149,9 @@ public sealed class StatusCommandTests
                   "relativePath": "docs/file.txt",
                   "reason": "Changed on both sides since the last known state",
                   "detectedAtUtc": "2026-04-02T10:06:00+00:00",
-                  "recommendedMode": "Manual"
+                  "recommendedMode": "Manual",
+                  "isAcknowledged": true,
+                  "acknowledgedAtUtc": "2026-04-02T10:08:00+00:00"
                 }
               ]
             }
@@ -207,10 +209,13 @@ public sealed class StatusCommandTests
             Assert.Equal("alpha", preview.ProfileName);
             Assert.Equal("TwoWayPreview", preview.SyncMode);
             Assert.Equal(1, preview.ConflictCount);
+            Assert.Equal(1, preview.AcknowledgedConflictCount);
             var conflict = Assert.Single(preview.Conflicts);
             Assert.Equal("docs/file.txt", conflict.RelativePath);
             Assert.Equal("Manual", conflict.RecommendedMode);
             Assert.Contains("Changed on both sides", conflict.Reason);
+            Assert.True(conflict.IsAcknowledged);
+            Assert.Equal(DateTimeOffset.Parse("2026-04-02T10:08:00+00:00"), conflict.AcknowledgedAtUtc);
             Assert.NotNull(report.RecentActivity);
             Assert.Contains("Reconciliation completed", report.RecentActivity!.LastReconcile);
             Assert.Contains("Synced docs\\file.txt", report.RecentActivity.LastSync);

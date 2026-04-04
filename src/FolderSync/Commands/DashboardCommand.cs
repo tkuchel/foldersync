@@ -136,6 +136,12 @@ public static class DashboardCommand
                 return;
             }
 
+            if (string.Equals(path, "/api/control/twoway-preview/acknowledge", StringComparison.OrdinalIgnoreCase))
+            {
+                await HandleTwoWayPreviewAcknowledgeRequestAsync(context, serviceName);
+                return;
+            }
+
             context.Response.ContentType = "text/html; charset=utf-8";
             var html = GetDashboardHtml(serviceName);
             var bytes = Encoding.UTF8.GetBytes(html);
@@ -530,6 +536,91 @@ public static class DashboardCommand
         });
     }
 
+    [SupportedOSPlatform("windows")]
+    private static async Task HandleTwoWayPreviewAcknowledgeRequestAsync(HttpListenerContext context, string serviceName)
+    {
+        if (context.Request.HttpMethod != "POST")
+        {
+            context.Response.StatusCode = 405;
+            await WriteJsonAsync(context.Response, new { error = "POST required." });
+            return;
+        }
+
+        var report = StatusCommand.TryBuildStatusReport(serviceName, out var error);
+        if (report is null)
+        {
+            context.Response.StatusCode = 500;
+            await WriteJsonAsync(context.Response, new { error = error ?? "Failed to resolve installed preview state." });
+            return;
+        }
+
+        var request = await ReadJsonBodyAsync<DashboardTwoWayConflictRequest>(context);
+        if (request is null || string.IsNullOrWhiteSpace(request.Profile) || string.IsNullOrWhiteSpace(request.RelativePath))
+        {
+            context.Response.StatusCode = 400;
+            await WriteJsonAsync(context.Response, new { error = "Profile and RelativePath are required." });
+            return;
+        }
+
+        var previewStatus = report.TwoWayPreviewStatuses.FirstOrDefault(item =>
+            string.Equals(item.ProfileName, request.Profile, StringComparison.OrdinalIgnoreCase));
+        if (previewStatus is null)
+        {
+            context.Response.StatusCode = 404;
+            await WriteJsonAsync(context.Response, new { error = $"Preview state not found for profile '{request.Profile}'." });
+            return;
+        }
+
+        var stateStorePath = previewStatus.StateStorePath;
+        if (string.IsNullOrWhiteSpace(stateStorePath))
+        {
+            context.Response.StatusCode = 400;
+            await WriteJsonAsync(context.Response, new { error = $"Two-way preview is not configured for profile '{request.Profile}'." });
+            return;
+        }
+
+        try
+        {
+            ITwoWayStateStore store = new JsonTwoWayStateStore(stateStorePath);
+            var acknowledged = store.AcknowledgeConflict(request.RelativePath, DateTimeOffset.UtcNow);
+            if (!acknowledged)
+            {
+                context.Response.StatusCode = 404;
+                await WriteJsonAsync(context.Response, new { error = $"Conflict '{request.RelativePath}' was not found." });
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(report.InstallDirectory))
+            {
+                UpdateRuntimeControlActivity(
+                    report.InstallDirectory,
+                    "preview-ack",
+                    request.Profile,
+                    $"Acknowledged preview conflict: {request.RelativePath}");
+            }
+        }
+        catch (UnauthorizedAccessException)
+        {
+            context.Response.StatusCode = 403;
+            await WriteJsonAsync(context.Response, new { error = $"Access denied writing preview state in {stateStorePath}. Re-run the dashboard from an elevated PowerShell window." });
+            return;
+        }
+        catch (Exception ex)
+        {
+            context.Response.StatusCode = 500;
+            await WriteJsonAsync(context.Response, new { error = $"Failed to acknowledge preview conflict: {ex.Message}" });
+            return;
+        }
+
+        await WriteJsonAsync(context.Response, new
+        {
+            ok = true,
+            action = "twoway-preview-acknowledge",
+            profile = request.Profile,
+            relativePath = request.RelativePath
+        });
+    }
+
     private static string NormalizeReason(string? reason)
     {
         return string.IsNullOrWhiteSpace(reason) ? "Paused by operator" : reason;
@@ -634,6 +725,15 @@ public static class DashboardCommand
                     Details = details
                 });
                 break;
+            case "preview-ack":
+                profile.AddActivity(new ProfileActivitySnapshot
+                {
+                    Kind = "preview",
+                    Summary = "Preview conflict acknowledged",
+                    TimestampUtc = now,
+                    Details = details
+                });
+                break;
         }
     }
 
@@ -699,6 +799,12 @@ public static class DashboardCommand
     {
         public string? Profile { get; set; }
         public string? Reason { get; set; }
+    }
+
+    private sealed class DashboardTwoWayConflictRequest
+    {
+        public string? Profile { get; set; }
+        public string? RelativePath { get; set; }
     }
 
     private static string GetDashboardHtml(string serviceName)
@@ -800,6 +906,10 @@ public static class DashboardCommand
     .conflict-group-title { font-weight: 700; }
     .conflict-item { padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--warn-bg) 55%, var(--subtle)); border: 1px solid color-mix(in srgb, var(--warn) 28%, var(--border)); }
     .conflict-item strong { display:block; margin-bottom:4px; }
+    .conflict-item.acknowledged { background: var(--subtle); border-color: color-mix(in srgb, var(--accent) 18%, var(--border)); opacity: .82; }
+    .conflict-item-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+    .conflict-item-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .mini-button { padding: 6px 10px; font-size: .82rem; min-height: auto; }
     .toast { display:none; margin-top: 16px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--border); background: var(--subtle); }
     .toast.error { border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); color: var(--danger); background: var(--danger-bg); }
     .toast.success { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); color: var(--accent); background: var(--success-bg); }
@@ -895,6 +1005,8 @@ public static class DashboardCommand
         Conflict filter
         <select id="conflict-filter">
           <option value="all">All conflicts</option>
+          <option value="new">New conflicts</option>
+          <option value="acknowledged">Acknowledged</option>
           <option value="manual">Manual recommended</option>
           <option value="recent">Detected in last 24h</option>
         </select>
@@ -1148,12 +1260,12 @@ public static class DashboardCommand
       saveExpandedProfiles();
     }
 
-    async function postControl(path, profile) {
+    async function postControl(path, profile, extraBody = {}) {
       const reason = document.getElementById('pause-reason').value;
       const response = await fetch(path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profile, reason })
+        body: JSON.stringify({ profile, reason, ...extraBody })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Control action failed');
@@ -1380,6 +1492,8 @@ public static class DashboardCommand
 
     function matchesConflictFilter(conflict, filter) {
       if (!filter || filter === 'all') return true;
+      if (filter === 'new') return !conflict.IsAcknowledged;
+      if (filter === 'acknowledged') return Boolean(conflict.IsAcknowledged);
       if (filter === 'manual') return String(conflict.RecommendedMode || '').toLowerCase() === 'manual';
       if (filter === 'recent') {
         const detectedAt = conflict.DetectedAtUtc ? new Date(conflict.DetectedAtUtc) : null;
@@ -1508,6 +1622,7 @@ public static class DashboardCommand
             : 'n/a');
           const safeSyncMode = escapeHtml(previewStatus?.SyncMode || configuredProfile?.SyncMode || 'OneWay');
           const safePreviewConflicts = escapeHtml(String(previewStatus?.ConflictCount ?? 0));
+          const safeAcknowledgedConflicts = escapeHtml(String(previewStatus?.AcknowledgedConflictCount ?? 0));
           div.innerHTML = `
             <div class="profile-head">
               <div class="profile-title">
@@ -1523,6 +1638,7 @@ public static class DashboardCommand
               <div class="stat"><div class="stat-label">Overflows</div><div class="stat-value">${profile.WatcherOverflowCount}</div></div>
               <div class="stat"><div class="stat-label">Sync Mode</div><div class="stat-value">${safeSyncMode}</div></div>
               <div class="stat"><div class="stat-label">Preview Conflicts</div><div class="stat-value">${safePreviewConflicts}</div></div>
+              <div class="stat"><div class="stat-label">Acknowledged</div><div class="stat-value">${safeAcknowledgedConflicts}</div></div>
               <div class="stat"><div class="stat-label">Watcher</div><div class="stat-value">${safeWatcherState}</div></div>
               <div class="stat"><div class="stat-label">Last Event</div><div class="stat-value">${safeWatcherEvent}</div></div>
               <div class="stat"><div class="stat-label">Last Sync</div><div class="stat-value">${formatTimestamp(profile.LastSuccessfulSyncUtc)}</div></div>
@@ -1561,6 +1677,7 @@ public static class DashboardCommand
                       <span class="summary-chip">Total ${filteredConflicts.length}</span>
                       <span class="summary-chip">Groups ${groupedConflicts.length}</span>
                       <span class="summary-chip">Manual ${filteredConflicts.filter(item => String(item.RecommendedMode || '').toLowerCase() === 'manual').length}</span>
+                      <span class="summary-chip">Acknowledged ${filteredConflicts.filter(item => item.IsAcknowledged).length}</span>
                     </div>
                     <div class="conflict-groups">
                     ${groupedConflicts.map(group => `
@@ -1571,9 +1688,18 @@ public static class DashboardCommand
                         </div>
                         <div class="conflicts">
                           ${group.items.map(conflict => `
-                            <div class="conflict-item">
-                              <strong>${escapeHtml(conflict.RelativePath)}</strong>
-                              <div class="history-meta">${new Date(conflict.DetectedAtUtc).toLocaleString()} • Recommended: ${escapeHtml(conflict.RecommendedMode)}</div>
+                            <div class="conflict-item ${conflict.IsAcknowledged ? 'acknowledged' : ''}">
+                              <div class="conflict-item-head">
+                                <div>
+                                  <strong>${escapeHtml(conflict.RelativePath)}</strong>
+                                  <div class="history-meta">${new Date(conflict.DetectedAtUtc).toLocaleString()} • Recommended: ${escapeHtml(conflict.RecommendedMode)}${conflict.AcknowledgedAtUtc ? ` • Acknowledged ${new Date(conflict.AcknowledgedAtUtc).toLocaleString()}` : ''}</div>
+                                </div>
+                                <div class="conflict-item-actions">
+                                  ${conflict.IsAcknowledged
+                                    ? '<span class="pill">Acknowledged</span>'
+                                    : `<button class="secondary mini-button" data-action="acknowledge-conflict" data-profile="${safeName}" data-conflict-path="${encodeURIComponent(conflict.RelativePath || '')}">Acknowledge</button>`}
+                                </div>
+                              </div>
                             </div>
                           `).join('')}
                         </div>
@@ -1724,6 +1850,20 @@ public static class DashboardCommand
           });
         } catch (error) {
           showToast(error.message, 'error');
+        }
+        return;
+      }
+
+      if (action === 'acknowledge-conflict') {
+        try {
+          const relativePath = decodeURIComponent(button.getAttribute('data-conflict-path') || '');
+          await postControl('/api/control/twoway-preview/acknowledge', profile, { relativePath });
+          showToast(`Acknowledged preview conflict for ${profile}`);
+          await refresh();
+        } catch (error) {
+          showToast(error.message, 'error');
+          document.getElementById('error-card').style.display = 'block';
+          document.getElementById('error-text').textContent = error.message;
         }
         return;
       }
