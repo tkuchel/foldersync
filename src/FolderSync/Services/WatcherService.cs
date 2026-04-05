@@ -182,13 +182,7 @@ public sealed class WatcherService : IWatcherService
             "Event channel full — dropping {Kind} event for {Path} and requesting reconciliation",
             watcherEvent.Kind, watcherEvent.FullPath);
 
-        // Try to enqueue an overflow event instead
-        _channel.TryWrite(new WatcherEvent
-        {
-            Kind = WatcherChangeKind.Overflow,
-            FullPath = _options.SourcePath,
-            Timestamp = _clock.UtcNow
-        });
+        RequestOverflowReconciliation();
         _healthStore.RecordWatcherOverflow(_profileName);
     }
 
