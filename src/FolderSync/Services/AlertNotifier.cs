@@ -19,6 +19,7 @@ public sealed class AlertNotifier : IAlertNotifier
     private readonly IClock _clock;
     private readonly ILogger<AlertNotifier> _logger;
     private readonly ConcurrentDictionary<string, DateTimeOffset> _lastSentAtUtc = new();
+    private readonly ConcurrentDictionary<string, byte> _inFlight = new();
 
     public AlertNotifier(HttpClient httpClient, IOptions<FolderSyncConfig> config, IClock clock, ILogger<AlertNotifier> logger)
     {
@@ -41,7 +42,8 @@ public sealed class AlertNotifier : IAlertNotifier
             return;
         }
 
-        _lastSentAtUtc[key] = now;
+        if (!_inFlight.TryAdd(key, 0))
+            return;
 
         _ = Task.Run(async () =>
         {
@@ -51,10 +53,15 @@ public sealed class AlertNotifier : IAlertNotifier
 
                 using var response = await _httpClient.PostAsJsonAsync(_options.WebhookUrl, payload);
                 response.EnsureSuccessStatusCode();
+                _lastSentAtUtc[key] = _clock.UtcNow;
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to send alert notification for profile {ProfileName}", notification.ProfileName);
+            }
+            finally
+            {
+                _inFlight.TryRemove(key, out _);
             }
         });
     }

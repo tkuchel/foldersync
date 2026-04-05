@@ -10,6 +10,7 @@ public interface IFileOperationService
     Task CopyFileAsync(string sourcePath, string destinationPath, CancellationToken cancellationToken = default);
     Task RenameAsync(string oldPath, string newPath, CancellationToken cancellationToken = default);
     Task DeleteOrArchiveAsync(string destinationPath, string relativePath, CancellationToken cancellationToken = default);
+    Task DeleteOrArchiveForRetentionAsync(string destinationPath, string relativePath, CancellationToken cancellationToken = default);
     Task EnsureDirectoryExistsAsync(string path);
 }
 
@@ -87,45 +88,26 @@ public sealed class FileOperationService : IFileOperationService
 
         await _retry.ExecuteAsync(_ =>
         {
-            if (_options.DeleteMode == DeleteMode.Archive)
-            {
-                var archiveRoot = !string.IsNullOrEmpty(_options.DeleteArchivePath)
-                    ? _options.DeleteArchivePath
-                    : Path.Combine(_options.DestinationPath, ".deleted");
-                var normalizedArchiveRoot = NormalizePath(archiveRoot);
-                ValidateArchiveRoot(normalizedArchiveRoot);
-
-                var archivePath = SafeFile.GenerateArchivePath(destinationPath, archiveRoot, relativePath);
-                ValidateManagedPath(archivePath, normalizedArchiveRoot, nameof(archivePath), allowRoot: false);
-                SafeFile.EnsureDirectoryExists(archivePath);
-
-                if (Directory.Exists(destinationPath) && !File.Exists(destinationPath))
-                {
-                    Directory.Move(destinationPath, archivePath);
-                }
-                else
-                {
-                    File.Move(destinationPath, archivePath, overwrite: false);
-                }
-
-                _logger.LogInformation("Archived {Path} -> {ArchivePath}", destinationPath, archivePath);
-            }
-            else
-            {
-                if (Directory.Exists(destinationPath) && !File.Exists(destinationPath))
-                {
-                    Directory.Delete(destinationPath, recursive: true);
-                }
-                else
-                {
-                    File.Delete(destinationPath);
-                }
-
-                _logger.LogInformation("Deleted {Path}", destinationPath);
-            }
-
+            ExecuteDeleteOrArchive(destinationPath, relativePath);
             return Task.CompletedTask;
         }, $"DeleteOrArchive {destinationPath}", cancellationToken);
+    }
+
+    public async Task DeleteOrArchiveForRetentionAsync(string destinationPath, string relativePath, CancellationToken cancellationToken = default)
+    {
+        ValidateManagedPath(destinationPath, _destinationRoot, nameof(destinationPath), allowRoot: false);
+
+        if (_options.DryRun)
+        {
+            _logger.LogInformation("[DRY RUN] Would prune retained item {Path}", destinationPath);
+            return;
+        }
+
+        await _retry.ExecuteAsync(_ =>
+        {
+            ExecuteDeleteOrArchive(destinationPath, relativePath);
+            return Task.CompletedTask;
+        }, $"RetentionPrune {destinationPath}", cancellationToken);
     }
 
     public Task EnsureDirectoryExistsAsync(string path)
@@ -196,5 +178,45 @@ public sealed class FileOperationService : IFileOperationService
     private static string NormalizePath(string path)
     {
         return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
+    private void ExecuteDeleteOrArchive(string destinationPath, string relativePath)
+    {
+        if (_options.DeleteMode == DeleteMode.Archive)
+        {
+            var archiveRoot = !string.IsNullOrEmpty(_options.DeleteArchivePath)
+                ? _options.DeleteArchivePath
+                : Path.Combine(_options.DestinationPath, ".deleted");
+            var normalizedArchiveRoot = NormalizePath(archiveRoot);
+            ValidateArchiveRoot(normalizedArchiveRoot);
+
+            var archivePath = SafeFile.GenerateArchivePath(destinationPath, archiveRoot, relativePath);
+            ValidateManagedPath(archivePath, normalizedArchiveRoot, nameof(archivePath), allowRoot: false);
+            SafeFile.EnsureDirectoryExists(archivePath);
+
+            if (Directory.Exists(destinationPath) && !File.Exists(destinationPath))
+            {
+                Directory.Move(destinationPath, archivePath);
+            }
+            else
+            {
+                File.Move(destinationPath, archivePath, overwrite: false);
+            }
+
+            _logger.LogInformation("Archived {Path} -> {ArchivePath}", destinationPath, archivePath);
+        }
+        else
+        {
+            if (Directory.Exists(destinationPath) && !File.Exists(destinationPath))
+            {
+                Directory.Delete(destinationPath, recursive: true);
+            }
+            else
+            {
+                File.Delete(destinationPath);
+            }
+
+            _logger.LogInformation("Deleted {Path}", destinationPath);
+        }
     }
 }

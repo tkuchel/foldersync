@@ -87,6 +87,7 @@ public static class ProfileConfigurationValidator
 
         ValidateDeletionSettings(profile, validationOptions, result, normalizedDest);
         ValidateReconciliationSettings(profile, validationOptions, result);
+        ValidateRetentionSettings(profile, result);
     }
 
     private static void ValidateSyncMode(
@@ -129,6 +130,31 @@ public static class ProfileConfigurationValidator
                         result,
                         options.Strict,
                         $"Profiles '{a.Name}' and '{b.Name}' have overlapping source paths: {a.Path}, {b.Path}");
+                }
+            }
+        }
+
+        var destinations = profiles
+            .Select(p => (p.Name, Path: NormalizePath(p.Options.DestinationPath)))
+            .ToList();
+
+        for (var i = 0; i < destinations.Count; i++)
+        {
+            for (var j = i + 1; j < destinations.Count; j++)
+            {
+                var a = destinations[i];
+                var b = destinations[j];
+
+                if (string.Equals(a.Path, b.Path, StringComparison.OrdinalIgnoreCase))
+                {
+                    result.AddError($"Profiles '{a.Name}' and '{b.Name}' share the same destination path: {a.Path}");
+                    continue;
+                }
+
+                if (IsUnderRoot(a.Path, b.Path) || IsUnderRoot(b.Path, a.Path))
+                {
+                    result.AddError(
+                        $"Profiles '{a.Name}' and '{b.Name}' have overlapping destination paths: {a.Path}, {b.Path}");
                 }
             }
         }
@@ -236,6 +262,34 @@ public static class ProfileConfigurationValidator
         {
             result.AddWarning(
                 $"[{profile.Name}] RobocopyOptions includes backup-mode copying (/B or /ZB). This may access files with elevated privileges.");
+        }
+    }
+
+    private static void ValidateRetentionSettings(ResolvedProfile profile, ProfileValidationResult result)
+    {
+        var retention = profile.Options.Retention;
+        if (!retention.Enabled)
+            return;
+
+        if (retention.KeepNewestCount <= 0)
+            result.AddError($"[{profile.Name}] Retention requires KeepNewestCount to be greater than 0.");
+
+        if (retention.MinAgeHours < 0)
+            result.AddError($"[{profile.Name}] Retention MinAgeHours cannot be negative.");
+
+        if (string.IsNullOrWhiteSpace(retention.SearchPattern))
+            result.AddError($"[{profile.Name}] Retention requires a non-empty SearchPattern.");
+
+        if (!string.IsNullOrWhiteSpace(retention.RelativePath))
+        {
+            var destinationRoot = NormalizePath(profile.Options.DestinationPath);
+            var retentionRoot = NormalizePath(Path.Combine(destinationRoot, retention.RelativePath));
+
+            if (!string.Equals(retentionRoot, destinationRoot, StringComparison.OrdinalIgnoreCase) &&
+                !IsUnderRoot(retentionRoot, destinationRoot))
+            {
+                result.AddError($"[{profile.Name}] Retention RelativePath must stay within the destination root.");
+            }
         }
     }
 

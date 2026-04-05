@@ -25,6 +25,11 @@ public sealed class FolderSyncConfig
     /// </summary>
     public NotificationOptions Notifications { get; set; } = new();
 
+    /// <summary>
+    /// Runtime control-file behaviors shared by service and operator surfaces.
+    /// </summary>
+    public ControlOptions Control { get; set; } = new();
+
     // Backward compat: root-level SourcePath/DestinationPath
     // If Profiles is empty but these are set, creates an implicit "default" profile.
     public string SourcePath { get; set; } = string.Empty;
@@ -94,6 +99,7 @@ public sealed class SyncProfileConfig
     public StabilityCheckOptions? StabilityCheck { get; set; }
     public RetryOptions? Retry { get; set; }
     public ReconciliationOptions? Reconciliation { get; set; }
+    public DestinationRetentionOptions? Retention { get; set; }
     public ExclusionOptions? Exclusions { get; set; }
     public TwoWayOptions? TwoWay { get; set; }
 
@@ -168,6 +174,22 @@ public sealed class SyncProfileConfig
             };
         }
 
+        if (Retention is not null)
+        {
+            result.Retention = new DestinationRetentionOptions
+            {
+                Enabled = Retention.Enabled,
+                KeepNewestCount = Retention.KeepNewestCount,
+                ItemType = Retention.ItemType,
+                RelativePath = Retention.RelativePath,
+                Recursive = Retention.Recursive,
+                TriggerMode = Retention.TriggerMode,
+                MinAgeHours = Retention.MinAgeHours,
+                SearchPattern = Retention.SearchPattern,
+                SortBy = Retention.SortBy
+            };
+        }
+
         // Exclusions are MERGED — profile adds to defaults
         if (Exclusions is not null)
         {
@@ -215,6 +237,7 @@ public sealed class SyncOptions
     public StabilityCheckOptions StabilityCheck { get; set; } = new();
     public RetryOptions Retry { get; set; } = new();
     public ReconciliationOptions Reconciliation { get; set; } = new();
+    public DestinationRetentionOptions Retention { get; set; } = new();
     public ExclusionOptions Exclusions { get; set; } = new();
     public TwoWayOptions TwoWay { get; set; } = new();
 
@@ -255,6 +278,18 @@ public sealed class SyncOptions
                 RunOnStartup = Reconciliation.RunOnStartup,
                 UseRobocopy = Reconciliation.UseRobocopy,
                 RobocopyOptions = Reconciliation.RobocopyOptions
+            },
+            Retention = new DestinationRetentionOptions
+            {
+                Enabled = Retention.Enabled,
+                KeepNewestCount = Retention.KeepNewestCount,
+                ItemType = Retention.ItemType,
+                RelativePath = Retention.RelativePath,
+                Recursive = Retention.Recursive,
+                TriggerMode = Retention.TriggerMode,
+                MinAgeHours = Retention.MinAgeHours,
+                SearchPattern = Retention.SearchPattern,
+                SortBy = Retention.SortBy
             },
             Exclusions = new ExclusionOptions
             {
@@ -299,6 +334,38 @@ public sealed class ReconciliationOptions
     public string RobocopyOptions { get; set; } = "/E /FFT /Z /R:2 /W:5 /XO /NFL /NDL /NP /XJ";
 }
 
+public enum RetentionSortMode
+{
+    NameDescending,
+    LastWriteTimeUtcDescending
+}
+
+public enum RetentionItemType
+{
+    Directories,
+    Files
+}
+
+public enum RetentionTriggerMode
+{
+    ReconciliationOnly,
+    SyncOnly,
+    ReconciliationAndSync
+}
+
+public sealed class DestinationRetentionOptions
+{
+    public bool Enabled { get; set; }
+    public int KeepNewestCount { get; set; }
+    public RetentionItemType ItemType { get; set; } = RetentionItemType.Directories;
+    public string RelativePath { get; set; } = string.Empty;
+    public bool Recursive { get; set; }
+    public RetentionTriggerMode TriggerMode { get; set; } = RetentionTriggerMode.ReconciliationOnly;
+    public int MinAgeHours { get; set; }
+    public string SearchPattern { get; set; } = "*";
+    public RetentionSortMode SortBy { get; set; } = RetentionSortMode.NameDescending;
+}
+
 public sealed class ExclusionOptions
 {
     public List<string> DirectoryNames { get; set; } = [];
@@ -322,4 +389,9 @@ public sealed class TwoWayOptions
     public bool RequireHashComparison { get; set; } = true;
     public string StateStorePath { get; set; } = string.Empty;
     public bool PreferRenameDetection { get; set; } = true;
+}
+
+public sealed class ControlOptions
+{
+    public int StaleReconcileRequestHours { get; set; } = 24;
 }

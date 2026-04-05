@@ -271,6 +271,8 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
         {
             var profile = GetProfile(profileName);
             var reconciliation = profile.Reconciliation;
+            reconciliation.IsRunning = true;
+            reconciliation.CurrentTrigger = trigger;
             reconciliation.LastTrigger = trigger;
             reconciliation.LastStartedAtUtc = _clock.UtcNow;
             profile.AddActivity(new ProfileActivitySnapshot
@@ -278,7 +280,7 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
                 Kind = "reconcile",
                 Summary = $"Reconciliation started ({trigger})",
                 TimestampUtc = _clock.UtcNow,
-                Details = trigger
+                Details = $"Trigger: {trigger}"
             });
             PersistLocked();
         }
@@ -290,6 +292,8 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
         {
             var profile = GetProfile(profileName);
             var reconciliation = profile.Reconciliation;
+            reconciliation.IsRunning = false;
+            reconciliation.CurrentTrigger = null;
             reconciliation.RunCount++;
             reconciliation.LastTrigger = trigger;
             reconciliation.LastCompletedAtUtc = _clock.UtcNow;
@@ -305,10 +309,39 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
                     ? $"Reconciliation completed ({result.ExitCode})"
                     : $"Reconciliation failed ({result.ExitCode})",
                 TimestampUtc = _clock.UtcNow,
-                Details = result.ExitDescription
+                Details = BuildReconciliationDetails(trigger, result, duration)
             });
             PersistLocked();
         }
+    }
+
+    private static string BuildReconciliationDetails(string trigger, RobocopyResult result, TimeSpan duration)
+    {
+        var parts = new List<string>
+        {
+            $"Trigger: {trigger}",
+            $"Duration: {duration.TotalSeconds:F1}s"
+        };
+
+        if (!string.IsNullOrWhiteSpace(result.ExitDescription))
+            parts.Add($"Result: {result.ExitDescription}");
+
+        if (result.Summary is not null)
+        {
+            if (result.Summary.FilesCopied is not null || result.Summary.FilesFailed is not null || result.Summary.FilesExtras is not null)
+            {
+                parts.Add(
+                    $"Files copied: {result.Summary.FilesCopied ?? 0}, failed: {result.Summary.FilesFailed ?? 0}, extras: {result.Summary.FilesExtras ?? 0}");
+            }
+
+            if (result.Summary.DirectoriesCopied is not null || result.Summary.DirectoriesExtras is not null)
+            {
+                parts.Add(
+                    $"Directories copied: {result.Summary.DirectoriesCopied ?? 0}, extras: {result.Summary.DirectoriesExtras ?? 0}");
+            }
+        }
+
+        return string.Join(Environment.NewLine, parts);
     }
 
     private ProfileActivitySnapshot CreateSyncActivity(SyncResult result)

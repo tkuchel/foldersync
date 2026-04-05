@@ -266,11 +266,18 @@ public static class StatusCommand
         if (pausedProfiles is { Count: > 0 })
             Console.WriteLine($"Paused profiles: {string.Join(", ", pausedProfiles)}");
 
+        var pendingReconcileRequests = report.Control?.ReconcileRequests
+            .OrderBy(request => request.RequestedAtUtc)
+            .Select(request => $"{request.ProfileName} ({request.Trigger} @ {request.RequestedAtUtc.LocalDateTime})")
+            .ToList();
+        if (pendingReconcileRequests is { Count: > 0 })
+            Console.WriteLine($"Pending reconcile requests: {string.Join(", ", pendingReconcileRequests)}");
+
         if (report.Profiles.Count > 0)
             Console.WriteLine($"Profiles: {string.Join(", ", report.Profiles)}");
 
         Console.WriteLine($"Logs:    {report.LogsDirectory ?? "missing"}");
-        PrintRuntimeMetrics(report.Runtime);
+        PrintRuntimeMetrics(report.Runtime, report.Control, report.RawState);
 
         if (report.RecentLog is null)
         {
@@ -484,12 +491,13 @@ public static class StatusCommand
         return patterns.Any(pattern => line.Contains(pattern, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static void PrintRuntimeMetrics(RuntimeHealthSnapshot? snapshot)
+    private static void PrintRuntimeMetrics(RuntimeHealthSnapshot? snapshot, RuntimeControlSnapshot? control, string? rawState)
     {
         if (snapshot is null)
             return;
 
         Console.WriteLine($"Runtime: {snapshot.ServiceState} (updated {snapshot.UpdatedAtUtc.LocalDateTime})");
+        var serviceAvailable = string.Equals(rawState, "RUNNING", StringComparison.OrdinalIgnoreCase) || control?.IsPaused is true;
 
         foreach (var profile in snapshot.Profiles.OrderBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase))
         {
@@ -518,7 +526,15 @@ public static class StatusCommand
             if (profile.Reconciliation.RunCount > 0)
             {
                 var reconciliation = profile.Reconciliation;
-                var status = reconciliation.LastSuccess is true ? "success" : "failure";
+                var pendingRequests = control?.ReconcileRequests.Count(request =>
+                    string.Equals(request.ProfileName, profile.Name, StringComparison.OrdinalIgnoreCase)) ?? 0;
+                var status = !serviceAvailable
+                    ? "service unavailable"
+                    : reconciliation.IsRunning
+                        ? $"running ({reconciliation.CurrentTrigger ?? reconciliation.LastTrigger ?? "unknown"})"
+                        : pendingRequests > 0
+                            ? $"queued ({pendingRequests})"
+                            : reconciliation.LastSuccess is true ? "idle (last success)" : "idle (last failure)";
                 var duration = reconciliation.LastDurationMs is null
                     ? "n/a"
                     : $"{TimeSpan.FromMilliseconds(reconciliation.LastDurationMs.Value).TotalSeconds:F1}s";
@@ -530,6 +546,15 @@ public static class StatusCommand
                     Console.WriteLine($"  reconcile files copied={reconciliation.LastSummary.FilesCopied}, extras={reconciliation.LastSummary.FilesExtras}, failed={reconciliation.LastSummary.FilesFailed}");
                 if (reconciliation.LastCompletedAtUtc is not null)
                     Console.WriteLine($"  last reconcile={reconciliation.LastCompletedAtUtc.Value.LocalDateTime}");
+            }
+            else
+            {
+                var pendingRequests = control?.ReconcileRequests.Count(request =>
+                    string.Equals(request.ProfileName, profile.Name, StringComparison.OrdinalIgnoreCase)) ?? 0;
+                var status = !serviceAvailable
+                    ? "service unavailable"
+                    : pendingRequests > 0 ? $"queued ({pendingRequests})" : "idle";
+                Console.WriteLine($"  reconcile={status}, runs=0");
             }
         }
     }

@@ -72,6 +72,36 @@ public sealed class ProfileConfigurationValidatorTests : IDisposable
     }
 
     [Fact]
+    public void Validate_ReturnsError_ForOverlappingDestinations()
+    {
+        var sourceA = Path.Combine(_tempDir, "source-a");
+        var sourceB = Path.Combine(_tempDir, "source-b");
+        var destRoot = Path.Combine(_tempDir, "dest");
+        var nestedDest = Path.Combine(destRoot, "nested");
+        Directory.CreateDirectory(sourceA);
+        Directory.CreateDirectory(sourceB);
+
+        var profiles = new[]
+        {
+            new ResolvedProfile("a", new SyncOptions
+            {
+                SourcePath = sourceA,
+                DestinationPath = destRoot
+            }),
+            new ResolvedProfile("b", new SyncOptions
+            {
+                SourcePath = sourceB,
+                DestinationPath = nestedDest
+            })
+        };
+
+        var result = ProfileConfigurationValidator.Validate(profiles);
+
+        Assert.True(result.HasErrors);
+        Assert.Contains(result.Errors, e => e.Message.Contains("overlapping destination paths", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Validate_ReturnsWarning_WhenSyncDeletionsEnabled()
     {
         var source = Path.Combine(_tempDir, "source");
@@ -173,5 +203,79 @@ public sealed class ProfileConfigurationValidatorTests : IDisposable
 
         Assert.True(result.HasErrors);
         Assert.Contains(result.Errors, e => e.Message.Contains("not supported yet", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenRetentionEnabledWithoutPositiveKeepCount()
+    {
+        var source = Path.Combine(_tempDir, "source");
+        Directory.CreateDirectory(source);
+
+        var profile = new ResolvedProfile("test", new SyncOptions
+        {
+            SourcePath = source,
+            DestinationPath = Path.Combine(_tempDir, "dest"),
+            Retention = new DestinationRetentionOptions
+            {
+                Enabled = true,
+                KeepNewestCount = 0,
+                SearchPattern = "backup-*"
+            }
+        });
+
+        var result = ProfileConfigurationValidator.Validate([profile]);
+
+        Assert.True(result.HasErrors);
+        Assert.Contains(result.Errors, e => e.Message.Contains("KeepNewestCount", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenRetentionRelativePathEscapesDestination()
+    {
+        var source = Path.Combine(_tempDir, "source-retention-root");
+        Directory.CreateDirectory(source);
+
+        var profile = new ResolvedProfile("test", new SyncOptions
+        {
+            SourcePath = source,
+            DestinationPath = Path.Combine(_tempDir, "dest"),
+            Retention = new DestinationRetentionOptions
+            {
+                Enabled = true,
+                KeepNewestCount = 2,
+                RelativePath = "..\\outside",
+                SearchPattern = "backup-*"
+            }
+        });
+
+        var result = ProfileConfigurationValidator.Validate([profile]);
+
+        Assert.True(result.HasErrors);
+        Assert.Contains(result.Errors, e => e.Message.Contains("RelativePath", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenRetentionMinAgeHoursIsNegative()
+    {
+        var source = Path.Combine(_tempDir, "source-retention-age");
+        Directory.CreateDirectory(source);
+
+        var profile = new ResolvedProfile("test", new SyncOptions
+        {
+            SourcePath = source,
+            DestinationPath = Path.Combine(_tempDir, "dest"),
+            Retention = new DestinationRetentionOptions
+            {
+                Enabled = true,
+                KeepNewestCount = 2,
+                MinAgeHours = -1,
+                SearchPattern = "backup-*"
+            }
+        });
+
+        var result = ProfileConfigurationValidator.Validate([profile]);
+
+        Assert.True(result.HasErrors);
+        Assert.Contains(result.Errors, e => e.Message.Contains("MinAgeHours", StringComparison.Ordinal));
     }
 }

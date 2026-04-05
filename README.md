@@ -16,6 +16,7 @@ It supports:
 foldersync run
 foldersync reconcile
 foldersync validate-config
+foldersync validate-deploy
 foldersync install
 foldersync uninstall
 foldersync status
@@ -38,7 +39,7 @@ dotnet run --project src\FolderSync.Tray\FolderSync.Tray.csproj
 
 `status --verbose` is the best human-oriented operator view.
 
-`status --json` emits the full structured service/runtime report, including install/config/log paths, runtime counters, reconciliation metadata, and recent activity.
+`status --json` emits the full structured service/runtime report, including install/config/log paths, runtime counters, pause state, queued reconcile requests, reconciliation metadata, and recent activity.
 
 `health` is a compact summary for quick checks.
 
@@ -46,12 +47,15 @@ dotnet run --project src\FolderSync.Tray\FolderSync.Tray.csproj
 
 `pause` and `resume` control the running service through a persisted control file. When you pass `--profile`, only that profile pauses and the rest of the service keeps running.
 
+Dashboard and tray reconcile actions are also routed through the persisted control file. The running service consumes those queued reconcile requests, so installed-service operator actions no longer spawn a second one-shot reconcile process.
+
 `dashboard` starts a lightweight local web dashboard on `http://127.0.0.1:8941/` by default and opens it in your browser.
 The dashboard now supports:
 
 - filtering by profile name
 - pause and resume actions for the whole service
 - pause and resume actions per profile
+- queued reconcile visibility for the whole service and per profile
 - per-profile recent activity history
 - one-click profile reconciliation from the installed service
 
@@ -60,6 +64,7 @@ The dashboard now supports:
 - live tray status from the persisted health snapshot
 - alert balloons for service/profile warnings
 - quick pause, resume, and reconcile actions
+- queued reconcile visibility in the tray status and profile menus
 - per-profile quick actions
 - one-click dashboard launch
 - one-click profile jump into the dashboard
@@ -77,12 +82,7 @@ The tray app works best as a published executable. The local deploy script now p
 C:\FolderSync\Tray\foldersync-tray.exe
 ```
 
-The tray app's `Start with Windows` option now prefers that installed binary path, so Windows startup surfaces such as Task Manager can pick up the real application icon more reliably.
-
-The deploy script also creates Start Menu shortcuts for:
-
-- `FolderSync Tray`
-- `FolderSync Dashboard`
+If you run it via `dotnet run`, the `Start with Windows` option will point at the current process path rather than a separately installed tray binary.
 
 ## Configuration
 
@@ -111,9 +111,13 @@ foldersync status --verbose
 foldersync status --json
 foldersync health
 foldersync health --json
+foldersync validate-deploy --target-dir C:\FolderSync --skip-tests
 ```
 
+A practical operator reference for common runtime states lives in [TROUBLESHOOTING.md](C:/Users/terre/cowork-workspace/foldersync/TROUBLESHOOTING.md).
+
 The running service also persists runtime health to `foldersync-health.json` in the install directory.
+Control state and queued operator requests are persisted separately in `foldersync-control.json`.
 
 That snapshot includes:
 
@@ -122,6 +126,58 @@ That snapshot includes:
 - last successful sync and last failure
 - repeated-failure / repeated-overflow alerts
 - latest reconciliation trigger, duration, exit meaning, and parsed robocopy summary
+
+The control file includes:
+
+- global pause state and pause reason
+- per-profile pause state
+- queued reconcile requests waiting to be consumed by the running service
+
+Profiles can also apply optional destination-side retention for backup-style folders. When enabled, FolderSync keeps only the newest top-level destination directories that match a configured search pattern after a successful reconciliation run.
+
+Example:
+
+```json
+"Retention": {
+  "Enabled": true,
+  "KeepNewestCount": 5,
+  "ItemType": "Directories",
+  "RelativePath": "Nightly",
+  "Recursive": false,
+  "TriggerMode": "ReconciliationOnly",
+  "MinAgeHours": 24,
+  "SearchPattern": "backup-*",
+  "SortBy": "NameDescending"
+}
+```
+
+For nightly zip-style backups in a single destination folder, switch to file retention instead:
+
+```json
+"Retention": {
+  "Enabled": true,
+  "KeepNewestCount": 5,
+  "ItemType": "Files",
+  "RelativePath": "ZipBackups",
+  "Recursive": false,
+  "TriggerMode": "ReconciliationOnly",
+  "MinAgeHours": 24,
+  "SearchPattern": "backup-*.zip",
+  "SortBy": "NameDescending"
+}
+```
+
+Set `Recursive` to `true` if you want retention to search nested folders under the scoped path instead of only its top level.
+
+`TriggerMode` controls when retention runs:
+
+- `ReconciliationOnly`: only after a successful reconciliation run
+- `SyncOnly`: only after successful watcher-driven sync operations
+- `ReconciliationAndSync`: after both successful reconciliations and successful watcher-driven sync operations
+
+`MinAgeHours` adds a safety floor before pruning. For example, `24` means FolderSync will still protect the newest `N` items first, and then only prune older overflow items once they are at least 24 hours old.
+
+`RelativePath` is optional and is resolved under the profile destination. Retention applies to the matching files or directories inside that scoped folder and can either archive or delete older items based on the profile's existing `DeleteMode` settings.
 
 Optional alert notifications can be configured under `FolderSync:Notifications` with a webhook URL and cooldown.
 Supported notification providers are:
@@ -159,10 +215,21 @@ dotnet test FolderSync.slnx --nologo
 
 ## Versioning
 
-- The project version is set explicitly in [FolderSync.csproj](/T:/repos/foldersync/src/FolderSync/FolderSync.csproj).
+- Shared version metadata for both binaries is defined in [Directory.Build.props](C:/Users/terre/cowork-workspace/foldersync/Directory.Build.props).
 - `Version` and `InformationalVersion` should match the intended release tag, for example `1.0.1`.
 - `AssemblyVersion` and `FileVersion` should stay in four-part form, for example `1.0.1.0`.
 - When cutting a release, bump the project version first, build/test, then create the matching Git tag.
+
+## Releases
+
+- CI now smoke-tests `dotnet publish` for both the service and tray companion on Windows.
+- Tagged pushes such as `v1.0.1` now run [release.yml](C:/Users/terre/cowork-workspace/foldersync/.github/workflows/release.yml), which builds, tests, publishes, zips, and attaches both service and tray artifacts to a GitHub release.
+- The release workflow validates that the pushed tag matches the `Version` declared in [Directory.Build.props](C:/Users/terre/cowork-workspace/foldersync/Directory.Build.props) before publishing artifacts.
+- The packaged zip files are also checked by [Validate-ReleaseArtifacts.ps1](C:/Users/terre/cowork-workspace/foldersync/scripts/Validate-ReleaseArtifacts.ps1) so missing executables or runtime files fail the release.
+- The packaged executables are smoke-tested by [Smoke-Test-ReleaseArtifacts.ps1](C:/Users/terre/cowork-workspace/foldersync/scripts/Smoke-Test-ReleaseArtifacts.ps1), which validates the published service binary against a temp config and runs the tray in a headless `--smoke-test` mode.
+- Local release validation should still include `dotnet test FolderSync.slnx --nologo` before tagging.
+- A short human release checklist lives in [RELEASE_CHECKLIST.md](C:/Users/terre/cowork-workspace/foldersync/RELEASE_CHECKLIST.md).
+- Operator troubleshooting guidance lives in [TROUBLESHOOTING.md](C:/Users/terre/cowork-workspace/foldersync/TROUBLESHOOTING.md).
 
 The repo ignores generated output like `bin/`, `obj/`, logs, IDE state, and local Codex/Claude workspace files.
 
@@ -177,11 +244,10 @@ The repo ignores generated output like `bin/`, `obj/`, logs, IDE state, and loca
 
 The current next-frontier work is:
 
-- profile-level pause and resume controls instead of only global pause/resume
-- richer dashboard interactions, including profile filtering and operator actions
-- notification integrations and templates for tools like Slack or Teams
-- broader operator UX improvements built on the existing health and status APIs
-- a phased bidirectional sync design that preserves the safety of the existing one-way engine
+- clearer operator state transitions in the dashboard and tray, especially differentiating `queued`, `running`, and `service unavailable`
+- deeper integration coverage around watcher overflow and cross-process operator workflows
+- release packaging automation for tagged builds and attached artifacts
+- incremental operator UX improvements built on the existing health, status, and control-file APIs
 
 Current progress on `develop`:
 
@@ -189,11 +255,8 @@ Current progress on `develop`:
 - dashboard filtering and pause/resume actions are implemented
 - Slack/Teams notification payload templates are implemented
 - dashboard profile activity history and one-click reconcile actions are implemented
-- dashboard profile create/edit/delete is implemented
-
-Design notes:
-
-- [Bidirectional sync design](/T:/repos/foldersync/docs/BidirectionalSyncDesign.md)
+- service-owned queued reconcile requests are implemented for dashboard and tray operator actions
+- queued reconcile visibility is implemented in `status --json`, the dashboard, and the tray
 
 ## Local Deployment
 
@@ -203,13 +266,18 @@ For the installed service in `C:\FolderSync`, use:
 powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1
 ```
 
+For a no-touch deployment rehearsal that validates the live config, runs publish, and checks packaged artifacts without stopping or updating the service, use:
+
+```powershell
+dotnet run --project src\FolderSync -- validate-deploy --target-dir C:\FolderSync
+```
+
 This script:
 
 - runs tests by default
 - validates the live `C:\FolderSync\appsettings.json`
 - publishes fresh binaries from the repo
 - publishes the tray companion to `C:\FolderSync\Tray\`
-- creates Start Menu shortcuts for the tray and dashboard
 - preserves the live `appsettings.json`
 - leaves the `logs` directory untouched
 - stops and restarts the `FolderSync` service when needed
@@ -221,4 +289,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1 -WhatIf
 powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1 -SkipTests
 powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1 -NoRestart
 powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-Local.ps1 -SkipTray
+```
+
+Useful `validate-deploy` options:
+
+```powershell
+dotnet run --project src\FolderSync -- validate-deploy --target-dir C:\FolderSync --skip-tests
+dotnet run --project src\FolderSync -- validate-deploy --target-dir C:\FolderSync --skip-tray
+dotnet run --project src\FolderSync -- validate-deploy --target-dir C:\FolderSync --configuration Release
 ```

@@ -77,23 +77,16 @@ public sealed class RobocopyService : IRobocopyService
         var source = Quote(_options.SourcePath);
         var dest = Quote(_options.DestinationPath);
 
-        var args = $"{source} {dest}";
-        var customOptions = _options.Reconciliation.RobocopyOptions;
+        var optionTokens = TokenizeOptions(_options.Reconciliation.RobocopyOptions);
 
-        if (!string.IsNullOrWhiteSpace(customOptions))
-        {
-            args += $" {customOptions}";
-        }
-
-        if (!ContainsOption(customOptions, "/XJ"))
-        {
-            args += " /XJ";
-        }
+        if (!ContainsOption(optionTokens, "/XJ"))
+            optionTokens.Add("/XJ");
 
         // Add exclusions
         if (_options.Exclusions.DirectoryNames.Count > 0)
         {
-            args += " /XD " + string.Join(" ", _options.Exclusions.DirectoryNames.Select(Quote));
+            optionTokens.Add("/XD");
+            optionTokens.AddRange(_options.Exclusions.DirectoryNames.Select(Quote));
         }
 
         // Exclude syncing temp files and configured file patterns (deduplicated)
@@ -103,16 +96,17 @@ public sealed class RobocopyService : IRobocopyService
         };
         foreach (var pattern in _options.Exclusions.FilePatterns)
             fileExclusions.Add(pattern);
-        args += " /XF " + string.Join(" ", fileExclusions.Select(Quote));
+        optionTokens.Add("/XF");
+        optionTokens.AddRange(fileExclusions.Select(Quote));
 
         if (!_options.IncludeSubdirectories)
         {
-            // Remove /E if present in custom options and add /LEV:1
-            args = args.Replace(" /E ", " ");
-            args += " /LEV:1";
+            optionTokens.RemoveAll(token => string.Equals(token, "/E", StringComparison.OrdinalIgnoreCase));
+            if (!ContainsOption(optionTokens, "/LEV:1"))
+                optionTokens.Add("/LEV:1");
         }
 
-        return args;
+        return $"{source} {dest} {string.Join(" ", optionTokens)}".Trim();
     }
 
     /// <summary>
@@ -197,14 +191,20 @@ public sealed class RobocopyService : IRobocopyService
 
     private sealed record SummaryCounts(int Total, int Copied, int Skipped, int Mismatch, int Failed, int Extras);
 
-    private static bool ContainsOption(string? options, string expectedOption)
+    private static bool ContainsOption(IEnumerable<string> options, string expectedOption)
+    {
+        return options
+            .Any(token => string.Equals(token, expectedOption, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static List<string> TokenizeOptions(string? options)
     {
         if (string.IsNullOrWhiteSpace(options))
-            return false;
+            return [];
 
         return options
             .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Any(token => string.Equals(token, expectedOption, StringComparison.OrdinalIgnoreCase));
+            .ToList();
     }
 
     private static string Quote(string value) => $"\"{value}\"";

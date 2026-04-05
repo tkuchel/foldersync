@@ -6,6 +6,7 @@ public sealed class RuntimeControlSnapshot
     public string? Reason { get; set; }
     public DateTimeOffset? ChangedAtUtc { get; set; }
     public List<ProfileRuntimeControlSnapshot> Profiles { get; set; } = [];
+    public List<ReconcileRequestSnapshot> ReconcileRequests { get; set; } = [];
 
     public ProfileRuntimeControlSnapshot? GetProfile(string profileName)
     {
@@ -37,4 +38,12 @@ public sealed class ProfileRuntimeControlSnapshot
     public bool IsPaused { get; set; }
     public string? Reason { get; set; }
     public DateTimeOffset? ChangedAtUtc { get; set; }
+}
+
+public sealed class ReconcileRequestSnapshot
+{
+    public required string Id { get; set; }
+    public required string ProfileName { get; set; }
+    public string Trigger { get; set; } = "Control";
+    public DateTimeOffset RequestedAtUtc { get; set; }
 }

@@ -766,7 +766,7 @@ public static class DashboardCommand
         return trimmed;
     }
 
-    private static StatusReport ApplyProfileFilter(StatusReport report, string? profileName)
+    internal static StatusReport ApplyProfileFilter(StatusReport report, string? profileName)
     {
         if (string.IsNullOrWhiteSpace(profileName) || report.Runtime is null)
             return report;

@@ -56,7 +56,8 @@ public static class PauseCommand
 
         var controlStore = new RuntimeControlStore(
             Path.Combine(installDir!, "foldersync-control.json"),
-            new SystemClock());
+            new SystemClock(),
+            RuntimeControlStore.ResolveStaleReconcileRequestThreshold(Path.Combine(installDir!, "appsettings.json")));
 
         try
         {

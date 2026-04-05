@@ -15,15 +15,18 @@ public interface IReconciliationService
 public sealed class ReconciliationService : IReconciliationService
 {
     private readonly IRobocopyService _robocopy;
+    private readonly IDestinationRetentionService _retention;
     private readonly ReconciliationOptions _options;
     private readonly string _profileName;
     private readonly IRuntimeHealthStore _healthStore;
     private readonly IClock _clock;
     private readonly ILogger<ReconciliationService> _logger;
+    private readonly SemaphoreSlim _runGate = new(1, 1);
 
     public ReconciliationService(
         string profileName,
         IRobocopyService robocopy,
+        IDestinationRetentionService retention,
         IOptions<SyncOptions> options,
         IRuntimeHealthStore healthStore,
         IClock clock,
@@ -31,6 +34,7 @@ public sealed class ReconciliationService : IReconciliationService
     {
         _profileName = profileName;
         _robocopy = robocopy;
+        _retention = retention;
         _options = options.Value.Reconciliation;
         _healthStore = healthStore;
         _clock = clock;
@@ -45,20 +49,31 @@ public sealed class ReconciliationService : IReconciliationService
             return;
         }
 
-        var startedAt = _clock.UtcNow;
-        _healthStore.RecordReconciliationStarted(_profileName, trigger);
-        _logger.LogInformation("Starting reconciliation...");
-        var result = await _robocopy.ReconcileAsync(cancellationToken);
-        var duration = _clock.UtcNow - startedAt;
-        _healthStore.RecordReconciliationCompleted(_profileName, trigger, result, duration);
+        await _runGate.WaitAsync(cancellationToken);
+        try
+        {
+            var startedAt = _clock.UtcNow;
+            _healthStore.RecordReconciliationStarted(_profileName, trigger);
+            _logger.LogInformation("Starting reconciliation...");
+            var result = await _robocopy.ReconcileAsync(cancellationToken);
+            var duration = _clock.UtcNow - startedAt;
+            _healthStore.RecordReconciliationCompleted(_profileName, trigger, result, duration);
 
-        if (result.Success)
-        {
-            _logger.LogInformation("Reconciliation completed successfully (exit code {ExitCode})", result.ExitCode);
+            if (result.Success)
+                await _retention.ApplyAsync(RetentionExecutionTrigger.Reconciliation, cancellationToken);
+
+            if (result.Success)
+            {
+                _logger.LogInformation("Reconciliation completed successfully (exit code {ExitCode})", result.ExitCode);
+            }
+            else
+            {
+                _logger.LogError("Reconciliation failed (exit code {ExitCode})", result.ExitCode);
+            }
         }
-        else
+        finally
         {
-            _logger.LogError("Reconciliation failed (exit code {ExitCode})", result.ExitCode);
+            _runGate.Release();
         }
     }
 

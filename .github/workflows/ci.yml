@@ -30,3 +30,9 @@ jobs:
 
       - name: Validate JSON Report Shape
         run: dotnet test FolderSync.slnx --no-build --configuration Release --nologo --filter "StatusCommandTests|RuntimeHealthStoreTests|ReconciliationServiceTests|RobocopyServiceTests"
+
+      - name: Publish Service Smoke Test
+        run: dotnet publish src/FolderSync/FolderSync.csproj --no-build --configuration Release -o ${{ runner.temp }}\foldersync-publish
+
+      - name: Publish Tray Smoke Test
+        run: dotnet publish src/FolderSync.Tray/FolderSync.Tray.csproj --no-build --configuration Release -o ${{ runner.temp }}\foldersync-tray-publish

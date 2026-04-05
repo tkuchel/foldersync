@@ -75,6 +75,8 @@ public sealed class StatusCommandTests
                       "watcherOverflowCount": 0,
                       "reconciliation": {
                         "runCount": 3,
+                        "isRunning": true,
+                        "currentTrigger": "Dashboard",
                         "lastTrigger": "Overflow",
                         "lastSuccess": true,
                         "lastExitCode": 2
@@ -95,6 +97,8 @@ public sealed class StatusCommandTests
             Assert.Equal(@"C:\source\file.txt", profile.LastWatcherPath);
             Assert.Equal(9, profile.ProcessedCount);
             Assert.Equal(3, profile.Reconciliation.RunCount);
+            Assert.True(profile.Reconciliation.IsRunning);
+            Assert.Equal("Dashboard", profile.Reconciliation.CurrentTrigger);
             Assert.Equal("Overflow", profile.Reconciliation.LastTrigger);
             Assert.True(profile.Reconciliation.LastSuccess);
             Assert.Equal(2, profile.Reconciliation.LastExitCode);
@@ -184,13 +188,15 @@ public sealed class StatusCommandTests
                   "skippedCount": 2,
                   "failedCount": 1,
                   "watcherOverflowCount": 0,
-                  "reconciliation": {
-                    "runCount": 3,
-                    "lastTrigger": "Overflow",
-                    "lastSuccess": true,
-                    "lastExitCode": 2,
-                    "lastExitDescription": "Extra files or directories detected"
-                  }
+                    "reconciliation": {
+                      "runCount": 3,
+                      "isRunning": true,
+                      "currentTrigger": "Overflow",
+                      "lastTrigger": "Overflow",
+                      "lastSuccess": true,
+                      "lastExitCode": 2,
+                      "lastExitDescription": "Extra files or directories detected"
+                    }
                 }
               ]
             }
@@ -205,6 +211,8 @@ public sealed class StatusCommandTests
             Assert.Equal(3, report.Runtime!.Profiles[0].Reconciliation.RunCount);
             Assert.Equal("Watching", report.Runtime.Profiles[0].WatcherState);
             Assert.Equal("Updated", report.Runtime.Profiles[0].LastWatcherEventKind);
+            Assert.True(report.Runtime.Profiles[0].Reconciliation.IsRunning);
+            Assert.Equal("Overflow", report.Runtime.Profiles[0].Reconciliation.CurrentTrigger);
             var preview = Assert.Single(report.TwoWayPreviewStatuses);
             Assert.Equal("alpha", preview.ProfileName);
             Assert.Equal("TwoWayPreview", preview.SyncMode);
@@ -489,6 +497,115 @@ public sealed class StatusCommandTests
         finally
         {
             tempDir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TryReadRuntimeControlSnapshot_Reads_Pending_Reconcile_Requests()
+    {
+        var tempDir = Directory.CreateTempSubdirectory();
+        try
+        {
+            var path = Path.Combine(tempDir.FullName, "foldersync-control.json");
+            File.WriteAllText(path, """
+            {
+              "isPaused": false,
+              "reconcileRequests": [
+                {
+                  "id": "req-1",
+                  "profileName": "alpha",
+                  "trigger": "Dashboard",
+                  "requestedAtUtc": "2026-04-02T10:03:00+00:00"
+                }
+              ]
+            }
+            """);
+
+            var control = StatusCommand.TryReadRuntimeControlSnapshot(path);
+
+            Assert.NotNull(control);
+            var request = Assert.Single(control!.ReconcileRequests);
+            Assert.Equal("req-1", request.Id);
+            Assert.Equal("alpha", request.ProfileName);
+            Assert.Equal("Dashboard", request.Trigger);
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    [SupportedOSPlatform("windows")]
+    public void BuildStatusReport_Includes_Pending_Reconcile_Requests_From_Control_File()
+    {
+        var installDir = Directory.CreateTempSubdirectory();
+
+        try
+        {
+            var exePath = Path.Combine(installDir.FullName, "foldersync.exe");
+            File.WriteAllBytes(exePath, [0x4D, 0x5A]);
+
+            File.WriteAllText(Path.Combine(installDir.FullName, "appsettings.json"), """
+            {
+              "FolderSync": {
+                "Profiles": [
+                  { "Name": "alpha" }
+                ]
+              }
+            }
+            """);
+
+            File.WriteAllText(Path.Combine(installDir.FullName, "foldersync-control.json"), """
+            {
+              "isPaused": false,
+              "reconcileRequests": [
+                {
+                  "id": "req-1",
+                  "profileName": "alpha",
+                  "trigger": "Tray",
+                  "requestedAtUtc": "2026-04-03T03:00:00+00:00"
+                }
+              ]
+            }
+            """);
+
+            File.WriteAllText(Path.Combine(installDir.FullName, "foldersync-health.json"), """
+            {
+              "serviceName": "FolderSync",
+              "serviceState": "Running",
+              "startedAtUtc": "2026-04-03T02:00:00+00:00",
+              "updatedAtUtc": "2026-04-03T02:05:00+00:00",
+              "profiles": [
+                {
+                  "name": "alpha",
+                  "state": "Running",
+                  "processedCount": 2,
+                  "succeededCount": 2,
+                  "skippedCount": 0,
+                  "failedCount": 0,
+                  "watcherOverflowCount": 0,
+                  "reconciliation": {
+                    "runCount": 1,
+                    "lastTrigger": "Startup",
+                    "lastSuccess": true,
+                    "lastExitCode": 2
+                  }
+                }
+              ]
+            }
+            """);
+
+            var report = StatusCommand.BuildStatusReport("FolderSync", "RUNNING", "Running", $"\"{exePath}\"");
+
+            Assert.NotNull(report.Control);
+            var request = Assert.Single(report.Control!.ReconcileRequests);
+            Assert.Equal("alpha", request.ProfileName);
+            Assert.Equal("Tray", request.Trigger);
+        }
+        finally
+        {
+            installDir.Delete(recursive: true);
         }
     }
 }

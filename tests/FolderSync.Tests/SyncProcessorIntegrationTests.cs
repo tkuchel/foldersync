@@ -71,6 +71,7 @@ public sealed class SyncProcessorIntegrationTests : IDisposable
         var fileOperations = new FileOperationService(retryService, options, NullLogger<FileOperationService>.Instance);
         var pathMapping = new PathMappingService(options);
         var pathSafety = new PathSafetyService();
+        var retention = new DestinationRetentionService("alpha", options, fileOperations, NullLogger<DestinationRetentionService>.Instance);
 
         return new SyncProcessor(
             stabilityChecker,
@@ -79,6 +80,7 @@ public sealed class SyncProcessorIntegrationTests : IDisposable
             fileOperations,
             pathMapping,
             pathSafety,
+            retention,
             NullLogger<SyncProcessor>.Instance);
     }
 }
