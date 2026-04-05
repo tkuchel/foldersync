@@ -67,11 +67,13 @@ function Invoke-RobocopyCopy {
 function Remove-StalePublishDirectories {
     param(
         [Parameter(Mandatory = $true)][string]$TempRoot,
-        [Parameter(Mandatory = $true)][string]$CurrentPublishDir
+        [Parameter(Mandatory = $true)][string[]]$CurrentPublishDirs
     )
 
-    $staleDirectories = Get-ChildItem -Path $TempRoot -Directory -Filter "foldersync-publish-*" -ErrorAction SilentlyContinue |
-        Where-Object { $_.FullName -ne $CurrentPublishDir }
+    $filters = @("foldersync-publish-*", "foldersync-tray-publish-*")
+    $staleDirectories = $(foreach ($filter in $filters) {
+        Get-ChildItem -Path $TempRoot -Directory -Filter $filter -ErrorAction SilentlyContinue
+    }) | Where-Object { $CurrentPublishDirs -notcontains $_.FullName }
 
     foreach ($directory in $staleDirectories) {
         try {
@@ -86,99 +88,15 @@ function Remove-StalePublishDirectories {
     }
 }
 
-function New-StartMenuShortcut {
+function Assert-PathExists {
     param(
-        [Parameter(Mandatory = $true)][string]$ShortcutPath,
-        [Parameter(Mandatory = $true)][string]$TargetPath,
-        [string]$Arguments = "",
-        [string]$WorkingDirectory = "",
-        [string]$Description = "",
-        [string]$IconLocation = ""
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Description
     )
 
-    $shortcutDirectory = Split-Path -Parent $ShortcutPath
-    if (-not (Test-Path $shortcutDirectory)) {
-        New-Item -ItemType Directory -Path $shortcutDirectory | Out-Null
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw "$Description not found: $Path"
     }
-
-    $shell = New-Object -ComObject WScript.Shell
-    $shortcut = $shell.CreateShortcut($ShortcutPath)
-    $shortcut.TargetPath = $TargetPath
-    if (-not [string]::IsNullOrWhiteSpace($Arguments)) {
-        $shortcut.Arguments = $Arguments
-    }
-    if (-not [string]::IsNullOrWhiteSpace($WorkingDirectory)) {
-        $shortcut.WorkingDirectory = $WorkingDirectory
-    }
-    if (-not [string]::IsNullOrWhiteSpace($Description)) {
-        $shortcut.Description = $Description
-    }
-    if (-not [string]::IsNullOrWhiteSpace($IconLocation)) {
-        $shortcut.IconLocation = $IconLocation
-    }
-    $shortcut.Save()
-}
-
-function Get-RunningProcessesForExecutable {
-    param(
-        [Parameter(Mandatory = $true)][string]$ExecutablePath
-    )
-
-    $resolvedPath = [System.IO.Path]::GetFullPath($ExecutablePath)
-    $matches = @()
-
-    foreach ($process in Get-CimInstance Win32_Process -ErrorAction SilentlyContinue) {
-        if ([string]::IsNullOrWhiteSpace($process.ExecutablePath)) {
-            continue
-        }
-
-        try {
-            $candidatePath = [System.IO.Path]::GetFullPath($process.ExecutablePath)
-            if ($candidatePath.Equals($resolvedPath, [System.StringComparison]::OrdinalIgnoreCase)) {
-                $matches += $process
-            }
-        }
-        catch {
-        }
-    }
-
-    return $matches
-}
-
-function Stop-RunningExecutableProcesses {
-    param(
-        [Parameter(Mandatory = $true)][string]$ExecutablePath,
-        [Parameter(Mandatory = $true)][string]$DisplayName
-    )
-
-    if (-not (Test-Path $ExecutablePath)) {
-        return $false
-    }
-
-    $processes = @(Get-RunningProcessesForExecutable -ExecutablePath $ExecutablePath)
-    if ($processes.Count -eq 0) {
-        return $false
-    }
-
-    foreach ($process in $processes) {
-        if ($PSCmdlet.ShouldProcess("$DisplayName PID $($process.ProcessId)", "Stop process")) {
-            Write-Host "Stopping $DisplayName process $($process.ProcessId)..."
-            Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
-        }
-    }
-
-    if ($WhatIfPreference) {
-        return $true
-    }
-
-    Start-Sleep -Seconds 1
-
-    $remaining = @(Get-RunningProcessesForExecutable -ExecutablePath $ExecutablePath)
-    if ($remaining.Count -gt 0) {
-        throw "Failed to stop all running '$DisplayName' processes using $ExecutablePath."
-    }
-
-    return $true
 }
 
 $repoRoot = if ([string]::IsNullOrWhiteSpace($PSScriptRoot)) {
@@ -192,14 +110,10 @@ $projectPath = Join-Path $repoRoot "src\FolderSync\FolderSync.csproj"
 $trayProjectPath = Join-Path $repoRoot "src\FolderSync.Tray\FolderSync.Tray.csproj"
 $targetDir = Assert-SafeTargetDirectory -Path $TargetDir
 $trayTargetDir = Join-Path $targetDir "Tray"
-$startMenuDir = Join-Path ([Environment]::GetFolderPath("Programs")) "FolderSync"
 $tempRoot = [System.IO.Path]::GetTempPath()
 $publishDir = Join-Path $tempRoot ("foldersync-publish-" + [guid]::NewGuid().ToString("N"))
 $trayPublishDir = Join-Path $tempRoot ("foldersync-tray-publish-" + [guid]::NewGuid().ToString("N"))
-$serviceExePath = Join-Path $targetDir "foldersync.exe"
-$trayExePath = Join-Path $trayTargetDir "foldersync-tray.exe"
 $wasRunning = $false
-$trayWasRunning = $false
 $isAdministrator = Test-IsAdministrator
 
 try {
@@ -220,7 +134,7 @@ try {
         throw "Target config not found: $targetConfigPath"
     }
 
-    Remove-StalePublishDirectories -TempRoot $tempRoot -CurrentPublishDir $publishDir
+    Remove-StalePublishDirectories -TempRoot $tempRoot -CurrentPublishDirs @($publishDir, $trayPublishDir)
 
     if (-not $SkipTests) {
         Write-Host "Running test suite..."
@@ -233,11 +147,13 @@ try {
     Write-Host "Publishing FolderSync ($Configuration)..."
     New-Item -ItemType Directory -Path $publishDir | Out-Null
     Invoke-DotNet -Arguments @("publish", $projectPath, "-c", $Configuration, "-o", $publishDir) -WorkingDirectory $repoRoot
+    Assert-PathExists -Path (Join-Path $publishDir "foldersync.exe") -Description "Published service executable"
 
     if (-not $SkipTray) {
         Write-Host "Publishing FolderSync.Tray ($Configuration)..."
         New-Item -ItemType Directory -Path $trayPublishDir | Out-Null
         Invoke-DotNet -Arguments @("publish", $trayProjectPath, "-c", $Configuration, "-o", $trayPublishDir) -WorkingDirectory $repoRoot
+        Assert-PathExists -Path (Join-Path $trayPublishDir "foldersync-tray.exe") -Description "Published tray executable"
     }
 
     $service = Get-Service -Name $ServiceName -ErrorAction Stop
@@ -258,12 +174,6 @@ try {
         }
     }
 
-    Stop-RunningExecutableProcesses -ExecutablePath $serviceExePath -DisplayName "FolderSync dashboard/command host" | Out-Null
-
-    if (-not $SkipTray) {
-        $trayWasRunning = Stop-RunningExecutableProcesses -ExecutablePath $trayExePath -DisplayName "FolderSync tray companion"
-    }
-
     if ($PSCmdlet.ShouldProcess($targetDir, "Copy published output")) {
         Write-Host "Updating files in $targetDir..."
         Invoke-RobocopyCopy -Source $publishDir -Destination $targetDir -PreserveLiveConfig
@@ -277,30 +187,6 @@ try {
 
             Write-Host "Updating tray companion in $trayTargetDir..."
             Invoke-RobocopyCopy -Source $trayPublishDir -Destination $trayTargetDir
-        }
-
-        $trayShortcutPath = Join-Path $startMenuDir "FolderSync Tray.lnk"
-        $dashboardShortcutPath = Join-Path $startMenuDir "FolderSync Dashboard.lnk"
-        if ($PSCmdlet.ShouldProcess($startMenuDir, "Create Start Menu shortcuts")) {
-            Write-Host "Updating Start Menu shortcuts in $startMenuDir..."
-            New-StartMenuShortcut `
-                -ShortcutPath $trayShortcutPath `
-                -TargetPath $trayExePath `
-                -WorkingDirectory $trayTargetDir `
-                -Description "FolderSync tray companion" `
-                -IconLocation $trayExePath
-            New-StartMenuShortcut `
-                -ShortcutPath $dashboardShortcutPath `
-                -TargetPath $serviceExePath `
-                -Arguments "dashboard" `
-                -WorkingDirectory $targetDir `
-                -Description "FolderSync dashboard" `
-                -IconLocation $trayExePath
-        }
-
-        if ($trayWasRunning -and (Test-Path $trayExePath) -and $PSCmdlet.ShouldProcess($trayExePath, "Restart tray companion")) {
-            Write-Host "Restarting tray companion..."
-            Start-Process -FilePath $trayExePath -WorkingDirectory $trayTargetDir
         }
     }
 
@@ -319,7 +205,6 @@ try {
     if (-not $SkipTray) {
         Write-Host "Tray companion published to $trayTargetDir"
         Write-Host "Launch it with $([System.IO.Path]::Combine($trayTargetDir, 'foldersync-tray.exe'))"
-        Write-Host "Start Menu shortcuts updated in $startMenuDir"
     }
 }
 finally {
