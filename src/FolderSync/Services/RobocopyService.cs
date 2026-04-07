@@ -166,7 +166,7 @@ public sealed class RobocopyService : IRobocopyService
 
     private static SummaryCounts? ParseSummaryLine(IEnumerable<string> lines, string label)
     {
-        var line = lines.FirstOrDefault(candidate => candidate.StartsWith(label, StringComparison.OrdinalIgnoreCase));
+        var line = lines.LastOrDefault(candidate => candidate.StartsWith(label, StringComparison.OrdinalIgnoreCase));
         if (line is null)
             return null;
 

@@ -168,4 +168,49 @@ public sealed class RobocopyServiceTests
         Assert.Equal(57, summary.FilesSkipped);
         Assert.Equal(0, summary.FilesFailed);
     }
+
+    [Fact]
+    public void TryParseSummary_ParsesFileStats_WhenHeaderContainsFilesLine()
+    {
+        // Real robocopy output has "Files : *.*" in the header BEFORE the summary
+        var output = """
+            -------------------------------------------------------------------------------
+               ROBOCOPY     ::     Robust File Copy for Windows
+            -------------------------------------------------------------------------------
+
+              Started : Tuesday, 7 April 2026 12:15:21 PM
+               Source : C:\Users\tdog\cowork-workspace\
+                 Dest : C:\Users\tdog\Proton Drive\dest\
+
+                Files : *.*
+
+             Exc Files : *.__syncing
+                         *.tmp
+
+              Options : *.* /FFT /NDL /NFL /S /E /DCOPY:DA /COPY:DAT /Z /NP /XO /XJ /R:2 /W:5
+
+            ------------------------------------------------------------------------------
+
+
+            ------------------------------------------------------------------------------
+
+                           Total    Copied   Skipped  Mismatch    FAILED    Extras
+                Dirs :        40         0        40         0         0        15
+               Files :       331         0       331         0         0        19
+               Bytes :    4.67 m         0    4.67 m         0         0   325.1 k
+               Times :   0:00:00   0:00:00                       0:00:00   0:00:00
+               Ended : Tuesday, 7 April 2026 12:15:21 PM
+            """;
+
+        var summary = RobocopyService.TryParseSummary(output);
+
+        Assert.NotNull(summary);
+        Assert.Equal(40, summary!.DirectoriesTotal);
+        Assert.Equal(15, summary.DirectoriesExtras);
+        Assert.Equal(331, summary.FilesTotal);
+        Assert.Equal(0, summary.FilesCopied);
+        Assert.Equal(331, summary.FilesSkipped);
+        Assert.Equal(19, summary.FilesExtras);
+        Assert.Equal(0, summary.FilesFailed);
+    }
 }
