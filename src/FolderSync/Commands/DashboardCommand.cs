@@ -1437,7 +1437,7 @@ public static class DashboardCommand
     }
 
     function formatTimestamp(value) {
-      return value ? new Date(value).toLocaleString() : 'n/a';
+      return value ? new Date(value).toLocaleString('en-AU') : 'n/a';
     }
 
     function formatWatcherSummary(profile) {
@@ -1582,7 +1582,7 @@ public static class DashboardCommand
             : 'Live syncing';
         document.getElementById('paused-status').textContent = pauseControlText;
         document.getElementById('profile-count').textContent = runtimeProfiles.length;
-        document.getElementById('updated').textContent = data.Runtime?.UpdatedAtUtc ? `Updated ${new Date(data.Runtime.UpdatedAtUtc).toLocaleString()}` : 'No runtime snapshot';
+        document.getElementById('updated').textContent = data.Runtime?.UpdatedAtUtc ? `Updated ${new Date(data.Runtime.UpdatedAtUtc).toLocaleString('en-AU')}` : 'No runtime snapshot';
 
         const host = document.getElementById('profiles');
         host.innerHTML = '';
@@ -1662,7 +1662,7 @@ public static class DashboardCommand
                   : filteredActivities.map(item => `
                     <div class="history-item ${escapeHtml(item.DisplayClass || '')}">
                       <strong>${escapeHtml(item.Summary)}</strong>
-                      <div class="history-meta">${new Date(item.TimestampUtc).toLocaleString()}${item.RelativePath ? ` • ${escapeHtml(item.RelativePath)}` : ''}${item.DisplayMetaExtra ? ` • ${escapeHtml(item.DisplayMetaExtra)}` : ''}</div>
+                      <div class="history-meta">${new Date(item.TimestampUtc).toLocaleString('en-AU')}${item.RelativePath ? ` • ${escapeHtml(item.RelativePath)}` : ''}${item.DisplayMetaExtra ? ` • ${escapeHtml(item.DisplayMetaExtra)}` : ''}</div>
                       ${item.Details ? `<div>${escapeHtml(item.Details)}</div>` : ''}
                     </div>
                     `).join('')}
@@ -1692,7 +1692,7 @@ public static class DashboardCommand
                               <div class="conflict-item-head">
                                 <div>
                                   <strong>${escapeHtml(conflict.RelativePath)}</strong>
-                                  <div class="history-meta">${new Date(conflict.DetectedAtUtc).toLocaleString()} • Recommended: ${escapeHtml(conflict.RecommendedMode)}${conflict.AcknowledgedAtUtc ? ` • Acknowledged ${new Date(conflict.AcknowledgedAtUtc).toLocaleString()}` : ''}</div>
+                                  <div class="history-meta">${new Date(conflict.DetectedAtUtc).toLocaleString('en-AU')} • Recommended: ${escapeHtml(conflict.RecommendedMode)}${conflict.AcknowledgedAtUtc ? ` • Acknowledged ${new Date(conflict.AcknowledgedAtUtc).toLocaleString('en-AU')}` : ''}</div>
                                 </div>
                                 <div class="conflict-item-actions">
                                   ${conflict.IsAcknowledged
