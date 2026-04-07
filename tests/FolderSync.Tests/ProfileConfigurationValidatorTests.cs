@@ -187,7 +187,7 @@ public sealed class ProfileConfigurationValidatorTests : IDisposable
     }
 
     [Fact]
-    public void Validate_ReturnsError_WhenTwoWaySyncModeIsConfigured()
+    public void Validate_AllowsTwoWayPreviewMode()
     {
         var source = Path.Combine(_tempDir, "source");
         Directory.CreateDirectory(source);
@@ -197,6 +197,85 @@ public sealed class ProfileConfigurationValidatorTests : IDisposable
             SourcePath = source,
             DestinationPath = Path.Combine(_tempDir, "dest"),
             SyncMode = SyncMode.TwoWayPreview
+        });
+
+        var result = ProfileConfigurationValidator.Validate([profile]);
+
+        Assert.False(result.HasErrors);
+    }
+
+    [Fact]
+    public void Validate_AllowsTwoWaySafeMode()
+    {
+        var source = Path.Combine(_tempDir, "source");
+        var dest = Path.Combine(_tempDir, "dest");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(dest);
+
+        var profile = new ResolvedProfile("test", new SyncOptions
+        {
+            SourcePath = source,
+            DestinationPath = dest,
+            SyncMode = SyncMode.TwoWaySafe
+        });
+
+        var result = ProfileConfigurationValidator.Validate([profile]);
+
+        Assert.False(result.HasErrors);
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenTwoWaySafe_DestinationMissing()
+    {
+        var source = Path.Combine(_tempDir, "source");
+        Directory.CreateDirectory(source);
+
+        var profile = new ResolvedProfile("test", new SyncOptions
+        {
+            SourcePath = source,
+            DestinationPath = Path.Combine(_tempDir, "nonexistent-dest"),
+            SyncMode = SyncMode.TwoWaySafe
+        });
+
+        var result = ProfileConfigurationValidator.Validate([profile]);
+
+        Assert.True(result.HasErrors);
+        Assert.Contains(result.Errors, e => e.Message.Contains("destination directory to exist", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_WarnsWhenSyncDeletionsSetInTwoWaySafe()
+    {
+        var source = Path.Combine(_tempDir, "source");
+        var dest = Path.Combine(_tempDir, "dest");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(dest);
+
+        var profile = new ResolvedProfile("test", new SyncOptions
+        {
+            SourcePath = source,
+            DestinationPath = dest,
+            SyncMode = SyncMode.TwoWaySafe,
+            SyncDeletions = true
+        });
+
+        var result = ProfileConfigurationValidator.Validate([profile]);
+
+        Assert.False(result.HasErrors);
+        Assert.Contains(result.Warnings, w => w.Message.Contains("SyncDeletions is ignored", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenFullTwoWayModeIsConfigured()
+    {
+        var source = Path.Combine(_tempDir, "source");
+        Directory.CreateDirectory(source);
+
+        var profile = new ResolvedProfile("test", new SyncOptions
+        {
+            SourcePath = source,
+            DestinationPath = Path.Combine(_tempDir, "dest"),
+            SyncMode = SyncMode.TwoWay
         });
 
         var result = ProfileConfigurationValidator.Validate([profile]);

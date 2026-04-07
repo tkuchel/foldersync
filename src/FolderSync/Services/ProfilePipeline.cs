@@ -6,11 +6,17 @@ using Microsoft.Extensions.Options;
 
 namespace FolderSync.Services;
 
+public interface IProfilePipeline : IDisposable
+{
+    string ProfileName { get; }
+    Task StartAsync(CancellationToken stoppingToken);
+}
+
 /// <summary>
 /// Encapsulates the full watcher → buffer → processor pipeline for a single sync profile.
 /// Each profile gets its own isolated set of services, channels, and background tasks.
 /// </summary>
-public sealed class ProfilePipeline : IDisposable
+public sealed class ProfilePipeline : IProfilePipeline
 {
     private readonly string _profileName;
     private readonly SyncOptions _options;

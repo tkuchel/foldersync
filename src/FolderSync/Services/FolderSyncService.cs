@@ -19,7 +19,7 @@ public sealed class FolderSyncService : BackgroundService
     private readonly IRuntimeHealthStore _healthStore;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<FolderSyncService> _logger;
-    private readonly List<ProfilePipeline> _pipelines = [];
+    private readonly List<IProfilePipeline> _pipelines = [];
 
     public FolderSyncService(
         IOptions<FolderSyncConfig> config,
@@ -77,15 +77,26 @@ public sealed class FolderSyncService : BackgroundService
 
         foreach (var profile in profiles)
         {
-            var pipeline = new ProfilePipeline(
-                profile.Name,
-                profile.Options,
-                _clock,
-                _fileHasher,
-                _processRunner,
-                _controlStore,
-                _healthStore,
-                _loggerFactory);
+            IProfilePipeline pipeline = profile.Options.SyncMode switch
+            {
+                SyncMode.TwoWaySafe => new TwoWaySafePipeline(
+                    profile.Name,
+                    profile.Options,
+                    _clock,
+                    _fileHasher,
+                    _controlStore,
+                    _healthStore,
+                    _loggerFactory),
+                _ => new ProfilePipeline(
+                    profile.Name,
+                    profile.Options,
+                    _clock,
+                    _fileHasher,
+                    _processRunner,
+                    _controlStore,
+                    _healthStore,
+                    _loggerFactory)
+            };
 
             _pipelines.Add(pipeline);
             tasks.Add(pipeline.StartAsync(stoppingToken));

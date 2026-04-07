@@ -1055,8 +1055,8 @@ public static class DashboardCommand
           <label>Mode
             <select id="profile-sync-mode">
               <option value="OneWay">One-way</option>
-              <option value="TwoWayPreview" disabled>Two-way preview (planned)</option>
-              <option value="TwoWaySafe" disabled>Two-way safe (planned)</option>
+              <option value="TwoWayPreview">Two-way preview</option>
+              <option value="TwoWaySafe">Two-way safe</option>
               <option value="TwoWay" disabled>Two-way (planned)</option>
             </select>
           </label>

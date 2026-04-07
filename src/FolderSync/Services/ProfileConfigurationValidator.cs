@@ -95,11 +95,38 @@ public static class ProfileConfigurationValidator
         ProfileValidationResult result)
     {
         var syncOptions = profile.Options;
-        if (syncOptions.SyncMode == SyncMode.OneWay)
-            return;
 
-        result.AddError(
-            $"[{profile.Name}] SyncMode '{syncOptions.SyncMode}' is not supported yet. Bidirectional modes are planned but not implemented.");
+        switch (syncOptions.SyncMode)
+        {
+            case SyncMode.OneWay:
+                return;
+
+            case SyncMode.TwoWayPreview:
+                ValidateTwoWayCommon(profile, result);
+                return;
+
+            case SyncMode.TwoWaySafe:
+                ValidateTwoWayCommon(profile, result);
+                if (!Directory.Exists(syncOptions.DestinationPath))
+                    result.AddError($"[{profile.Name}] TwoWaySafe requires destination directory to exist: {syncOptions.DestinationPath}");
+                if (syncOptions.SyncDeletions)
+                    result.AddWarning($"[{profile.Name}] SyncDeletions is ignored in TwoWaySafe mode (deletes are never propagated)");
+                return;
+
+            default:
+                result.AddError(
+                    $"[{profile.Name}] SyncMode '{syncOptions.SyncMode}' is not supported yet.");
+                return;
+        }
+    }
+
+    private static void ValidateTwoWayCommon(
+        ResolvedProfile profile,
+        ProfileValidationResult result)
+    {
+        var syncOptions = profile.Options;
+        if (!syncOptions.UseHashComparison && !syncOptions.TwoWay.RequireHashComparison)
+            result.AddWarning($"[{profile.Name}] Hash comparison is strongly recommended for two-way sync modes");
     }
 
     private static void ValidateCrossProfileRelationships(

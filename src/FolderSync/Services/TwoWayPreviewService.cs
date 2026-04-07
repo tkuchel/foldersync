@@ -10,6 +10,11 @@ public interface ITwoWayPreviewService
         SyncOptions options,
         string stateStorePath,
         CancellationToken cancellationToken = default);
+
+    Task<TwoWayPreviewDetailedResult> RunDetailedAsync(
+        SyncOptions options,
+        ITwoWayStateStore stateStore,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class TwoWayPreviewService : ITwoWayPreviewService
@@ -53,6 +58,30 @@ public sealed class TwoWayPreviewService : ITwoWayPreviewService
             StateStorePath = stateStorePath,
             ChangeCount = result.Changes.Count,
             ConflictCount = result.Conflicts.Count,
+            CompletedAtUtc = completedAtUtc
+        };
+    }
+
+    public async Task<TwoWayPreviewDetailedResult> RunDetailedAsync(
+        SyncOptions options,
+        ITwoWayStateStore stateStore,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(options.SourcePath) || !Directory.Exists(options.SourcePath))
+            throw new DirectoryNotFoundException($"Source directory does not exist: {options.SourcePath}");
+
+        if (string.IsNullOrWhiteSpace(options.DestinationPath) || !Directory.Exists(options.DestinationPath))
+            throw new DirectoryNotFoundException($"Destination directory does not exist: {options.DestinationPath}");
+
+        var observedEntries = await EnumerateObservedEntriesAsync(options, cancellationToken);
+        var previous = stateStore.Load();
+        var completedAtUtc = DateTimeOffset.UtcNow;
+        var result = _classifier.Classify(observedEntries, previous, completedAtUtc);
+        stateStore.ApplyPreviewResult(result, completedAtUtc);
+
+        return new TwoWayPreviewDetailedResult
+        {
+            PreviewResult = result,
             CompletedAtUtc = completedAtUtc
         };
     }

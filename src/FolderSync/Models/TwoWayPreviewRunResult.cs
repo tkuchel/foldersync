@@ -8,3 +8,9 @@ public sealed class TwoWayPreviewRunResult
     public int ConflictCount { get; init; }
     public DateTimeOffset CompletedAtUtc { get; init; }
 }
+
+public sealed class TwoWayPreviewDetailedResult
+{
+    public required TwoWayPreviewResult PreviewResult { get; init; }
+    public DateTimeOffset CompletedAtUtc { get; init; }
+}

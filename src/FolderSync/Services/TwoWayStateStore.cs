@@ -9,6 +9,7 @@ public interface ITwoWayStateStore
     void Save(TwoWayStateSnapshot snapshot);
     void ApplyPreviewResult(TwoWayPreviewResult result, DateTimeOffset updatedAtUtc);
     bool AcknowledgeConflict(string relativePath, DateTimeOffset acknowledgedAtUtc);
+    void UpdateEntry(string relativePath, DateTimeOffset resolvedAtUtc);
 }
 
 public sealed class JsonTwoWayStateStore(string path) : ITwoWayStateStore
@@ -96,6 +97,30 @@ public sealed class JsonTwoWayStateStore(string path) : ITwoWayStateStore
         snapshot.UpdatedAtUtc = acknowledgedAtUtc;
         Save(snapshot);
         return true;
+    }
+
+    public void UpdateEntry(string relativePath, DateTimeOffset resolvedAtUtc)
+    {
+        var snapshot = Load();
+        var entry = snapshot.Entries.FirstOrDefault(e =>
+            string.Equals(e.RelativePath, relativePath, StringComparison.OrdinalIgnoreCase));
+
+        if (entry is null)
+        {
+            entry = new TwoWayStateEntry { RelativePath = relativePath };
+            snapshot.Entries.Add(entry);
+        }
+
+        entry.LastResolvedUtc = resolvedAtUtc;
+        entry.LastResolution = "TwoWaySafe";
+        entry.ConflictState = null;
+        snapshot.UpdatedAtUtc = resolvedAtUtc;
+
+        // Remove any conflict for this path since it was just synced
+        snapshot.Conflicts.RemoveAll(c =>
+            string.Equals(c.RelativePath, relativePath, StringComparison.OrdinalIgnoreCase));
+
+        Save(snapshot);
     }
 
     private static string GetConflictKey(string relativePath, string reason)
