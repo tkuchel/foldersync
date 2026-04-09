@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-04-09
+
+### Added
+- `.github/ISSUE_TEMPLATE/bug_report.yml` with structured bug reporting form.
+- `.github/ISSUE_TEMPLATE/feature_request.yml` for enhancement proposals.
+- `.github/ISSUE_TEMPLATE/config.yml` disabling blank issues and linking
+  Security Advisories and Discussions.
+- `.github/pull_request_template.md` with a test-evidence and safety-review
+  checklist covering deletion, reparse-point, and persisted-state-file
+  compatibility.
+- `.github/CODEOWNERS` auto-assigning reviewers for workflow, script, and
+  safety-critical source paths.
+- `.github/dependabot.yml` with weekly NuGet and GitHub Actions updates,
+  grouped by ecosystem (Microsoft.Extensions, Serilog, test tooling, and a
+  catch-all for minor/patch updates).
+
+### Changed
+- Bumped project version to `1.0.2` in `Directory.Build.props`.
+
 ## [1.0.1] - 2026-04-09
 
 ### Added
@@ -58,6 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI workflow `.github/workflows/ci.yml` with build, test, and publish smoke
   tests for both the service and tray on `windows-latest`.
 
-[Unreleased]: https://github.com/tkuchel/foldersync/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/tkuchel/foldersync/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/tkuchel/foldersync/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/tkuchel/foldersync/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/tkuchel/foldersync/releases/tag/v1.0.0
