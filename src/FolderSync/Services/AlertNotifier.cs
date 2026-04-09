@@ -20,6 +20,7 @@ public sealed class AlertNotifier : IAlertNotifier
     private readonly ILogger<AlertNotifier> _logger;
     private readonly ConcurrentDictionary<string, DateTimeOffset> _lastSentAtUtc = new();
     private readonly ConcurrentDictionary<string, byte> _inFlight = new();
+    private Task _lastPublishTask = Task.CompletedTask;
 
     public AlertNotifier(HttpClient httpClient, IOptions<FolderSyncConfig> config, IClock clock, ILogger<AlertNotifier> logger)
     {
@@ -45,7 +46,7 @@ public sealed class AlertNotifier : IAlertNotifier
         if (!_inFlight.TryAdd(key, 0))
             return;
 
-        _ = Task.Run(async () =>
+        _lastPublishTask = Task.Run(async () =>
         {
             try
             {
@@ -64,6 +65,17 @@ public sealed class AlertNotifier : IAlertNotifier
                 _inFlight.TryRemove(key, out _);
             }
         });
+    }
+
+    /// <summary>
+    /// Test-only observation hook: awaits the most recently scheduled
+    /// background publish task so that tests can wait for the catch/finally
+    /// block to finish before evaluating assertions. Production callers do
+    /// not need this because Publish is fire-and-forget by design.
+    /// </summary>
+    internal Task WaitForPendingPublishAsync()
+    {
+        return _lastPublishTask;
     }
 
     internal static object CreatePayload(AlertNotification notification, NotificationOptions options)

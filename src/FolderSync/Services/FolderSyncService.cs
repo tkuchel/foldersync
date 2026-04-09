@@ -59,11 +59,11 @@ public sealed class FolderSyncService : BackgroundService
 
         var validation = ProfileConfigurationValidator.Validate(profiles);
         foreach (var warning in validation.Warnings)
-            _logger.LogWarning(warning.Message);
+            _logger.LogWarning("Profile configuration warning: {Message}", warning.Message);
         if (validation.HasErrors)
         {
             foreach (var error in validation.Errors)
-                _logger.LogError(error.Message);
+                _logger.LogError("Profile configuration error: {Message}", error.Message);
             _healthStore.RecordServiceError("Configuration validation failed.");
             return;
         }

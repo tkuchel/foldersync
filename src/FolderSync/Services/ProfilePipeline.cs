@@ -249,5 +249,6 @@ public sealed class ProfilePipeline : IProfilePipeline
     public void Dispose()
     {
         _watcher.Dispose();
+        (_reconciliation as IDisposable)?.Dispose();
     }
 }

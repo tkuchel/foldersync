@@ -73,9 +73,11 @@ public sealed class AlertNotifierTests
             NullLogger<AlertNotifier>.Instance);
 
         notifier.Publish(CreateNotification());
+        await notifier.WaitForPendingPublishAsync();
         await handler.WaitForCountAsync(1);
 
         notifier.Publish(CreateNotification());
+        await notifier.WaitForPendingPublishAsync();
         await handler.WaitForCountAsync(2);
 
         Assert.Equal(2, handler.RequestCount);

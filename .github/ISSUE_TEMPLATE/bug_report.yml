@@ -1,0 +1,101 @@
+name: Bug Report
+description: Report a defect in FolderSync so it can be investigated and fixed.
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report.
+
+        Before submitting, please:
+
+        - Search existing issues to avoid duplicates.
+        - For **security issues**, follow [SECURITY.md](../SECURITY.md) instead of opening a public issue.
+        - Redact any source/destination paths, webhook URLs, or other sensitive values from logs and config snippets.
+
+  - type: input
+    id: version
+    attributes:
+      label: FolderSync version
+      description: Output of `foldersync status --verbose` or the `Version` in `Directory.Build.props`.
+      placeholder: "1.0.1"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Windows version
+      description: "Example: Windows 11 Pro 24H2"
+      placeholder: "Windows 11 Pro 24H2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-mode
+    attributes:
+      label: How is FolderSync running?
+      options:
+        - Installed Windows service
+        - Console (dotnet run or foldersync.exe run)
+        - One-shot reconcile
+        - Dashboard only
+        - Tray only
+        - Other / unsure
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of what you observed.
+      placeholder: "When I ran `foldersync reconcile` against profile X, ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal reproduction steps. Include whatever config, commands, and file operations are needed.
+      placeholder: |
+        1. Configure profile with ...
+        2. Run `foldersync ...`
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant configuration (redacted)
+      description: Paste the minimum `appsettings.json` profile that reproduces the issue. Redact paths, hosts, and secrets.
+      render: json
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or health snapshot
+      description: Paste excerpts from `logs/`, `foldersync-health.json`, or `foldersync status --json`. Redact sensitive values.
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checklist
+      options:
+        - label: I have searched existing issues and this is not a duplicate.
+          required: true
+        - label: I have redacted paths, hosts, and secrets from logs and config.
+          required: true
+        - label: This is not a security issue. (If it is, I will follow SECURITY.md instead.)
+          required: true

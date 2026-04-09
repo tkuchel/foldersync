@@ -1,0 +1,19 @@
+# FolderSync code owners
+#
+# Automatically assigned reviewers for pull requests. The last matching pattern
+# for a given file wins, so more specific rules should come later in the file.
+#
+# See: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-security/customizing-your-repository/about-code-owners
+
+# Default owner for everything in the repository.
+* @tkuchel
+
+# Workflows, release automation, and repository governance.
+/.github/             @tkuchel
+/scripts/             @tkuchel
+/Directory.Build.props @tkuchel
+
+# Core sync engine and safety-critical paths require extra scrutiny.
+/src/FolderSync/Services/     @tkuchel
+/src/FolderSync/Infrastructure/ @tkuchel
+/src/FolderSync/Models/       @tkuchel

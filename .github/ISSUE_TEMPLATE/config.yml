@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security issue
+    url: https://github.com/tkuchel/foldersync/security/advisories/new
+    about: Please report security issues privately via GitHub Security Advisories. Do not open a public issue.
+  - name: Question or discussion
+    url: https://github.com/tkuchel/foldersync/discussions
+    about: For questions, ideas, or general discussion. (Enable Discussions in repository settings if you land here and nothing happens.)

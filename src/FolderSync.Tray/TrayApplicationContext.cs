@@ -1112,7 +1112,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
     }
 
-    private (string? InstallDirectory, string? ExecutablePath) ResolveInstallLocation()
+    private static (string? InstallDirectory, string? ExecutablePath) ResolveInstallLocation()
     {
         var (exitCode, output, _) = RunSc($"qc \"{ServiceName}\"");
         if (exitCode == 0)
@@ -1148,7 +1148,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         return JsonSerializer.Deserialize<T>(stream, _jsonOptions);
     }
 
-    private void PersistJson<T>(string path, T value)
+    private static void PersistJson<T>(string path, T value)
     {
         var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrWhiteSpace(directory))
