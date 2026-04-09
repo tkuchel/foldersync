@@ -150,8 +150,16 @@ jobs:
           artifact-name: foldersync-tray-sbom.cdx.json
           output-file: ${{ runner.temp }}\foldersync-tray-${{ steps.version.outputs.tag }}-sbom.cdx.json
 
+      # Build-provenance attestations are not available for user-owned
+      # private repositories. The step is gated so that it no-ops on
+      # private repos and automatically starts attesting once the
+      # repository is made public. See:
+      # https://docs.github.com/rest/repos/attestations#create-an-attestation
       - name: Attest build provenance
-        if: startsWith(github.ref, 'refs/tags/') && inputs.dry_run != true
+        if: |
+          startsWith(github.ref, 'refs/tags/')
+          && inputs.dry_run != true
+          && github.event.repository.private == false
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: |

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-04-09
+
+### Fixed
+- `.github/workflows/release.yml` now gates the `Attest build provenance`
+  step on `github.event.repository.private == false`. Build-provenance
+  attestations are not available for user-owned private repositories,
+  and the previous step failed the v1.0.5 and v1.0.6 release workflows
+  before the "Create GitHub release" step could run, so no GitHub
+  release was created for those tags. The step is a no-op on private
+  repos and automatically starts attesting once the repository is
+  made public.
+- `RELEASE_CHECKLIST.md` now notes that attestations only run on public
+  repositories and that operators should fall back to verifying SHA256
+  checksums on private releases.
+
+### Changed
+- Bumped project version to `1.0.7` in `Directory.Build.props`.
+
 ## [1.0.6] - 2026-04-09
 
 ### Fixed
@@ -207,7 +225,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI workflow `.github/workflows/ci.yml` with build, test, and publish smoke
   tests for both the service and tray on `windows-latest`.
 
-[Unreleased]: https://github.com/tkuchel/foldersync/compare/v1.0.6...HEAD
+[Unreleased]: https://github.com/tkuchel/foldersync/compare/v1.0.7...HEAD
+[1.0.7]: https://github.com/tkuchel/foldersync/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/tkuchel/foldersync/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/tkuchel/foldersync/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/tkuchel/foldersync/compare/v1.0.3...v1.0.4

@@ -38,7 +38,7 @@ dotnet run --project src\FolderSync -- validate-deploy --target-dir C:\FolderSyn
    - `foldersync-<tag>-SHA256SUMS.txt`
    - `foldersync-service-<tag>-sbom.cdx.json`
    - `foldersync-tray-<tag>-sbom.cdx.json`
-3. Confirm a build-provenance attestation was created on the release commit (Actions → attest-build-provenance step, or the Attestations tab on the repo). This replaces traditional code signing for verifying authenticity of the zips.
+3. Confirm a build-provenance attestation was created on the release commit (Actions → attest-build-provenance step, or the Attestations tab on the repo). This replaces traditional code signing for verifying authenticity of the zips. **Note:** attestations only run when the repository is public. On private repos the step is skipped and operators fall back to verifying the SHA256 checksums.
 4. Download or inspect the published service and tray zip files from the GitHub release.
 5. Verify the SHA256 checksums match:
 
