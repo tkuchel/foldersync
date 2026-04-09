@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-04-09
+
+### Fixed
+- `AlertNotifierTests.Publish_Retries_After_Failed_Send_Instead_Of_Entering_Cooldown`
+  was flaky on CI. The test waited for the handler's `SendAsync` to be
+  called but not for the background `Task.Run` inside `Publish` to finish
+  its catch/finally block, so the second `Publish` could observe stale
+  `_inFlight` state and bail out early. `AlertNotifier` now exposes an
+  internal `WaitForPendingPublishAsync` test observation hook (visible
+  via the existing `InternalsVisibleTo` to the test project) and the
+  test awaits it after each publish to deterministically wait for
+  background completion.
+- `.github/workflows/dependency-review.yml` now skips on private
+  repositories, where `actions/dependency-review-action` requires GitHub
+  Advanced Security and would fail every dependabot PR. The workflow is
+  gated on `github.event.repository.private == false || workflow_dispatch`
+  so it is ready to enforce automatically the moment the repository is
+  made public.
+- `.github/workflows/ci.yml` test-reporter step now sets
+  `fail-on-empty: false` so the job summary does not error when tests
+  fail before producing a TRX file.
+
+### Changed
+- Bumped project version to `1.0.6` in `Directory.Build.props`.
+
 ## [1.0.5] - 2026-04-09
 
 ### Added
@@ -182,7 +207,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI workflow `.github/workflows/ci.yml` with build, test, and publish smoke
   tests for both the service and tray on `windows-latest`.
 
-[Unreleased]: https://github.com/tkuchel/foldersync/compare/v1.0.5...HEAD
+[Unreleased]: https://github.com/tkuchel/foldersync/compare/v1.0.6...HEAD
+[1.0.6]: https://github.com/tkuchel/foldersync/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/tkuchel/foldersync/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/tkuchel/foldersync/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/tkuchel/foldersync/compare/v1.0.2...v1.0.3

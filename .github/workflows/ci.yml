@@ -70,6 +70,7 @@ jobs:
           path: ${{ runner.temp }}/test-results/**/test-results.trx
           reporter: dotnet-trx
           fail-on-error: false
+          fail-on-empty: false
 
       - name: Upload coverage artifact
         if: always()

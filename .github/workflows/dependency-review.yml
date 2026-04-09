@@ -1,7 +1,14 @@
 name: Dependency Review
 
+# The dependency-review-action requires GitHub Advanced Security on private
+# repositories. Until this repo is public, the review step is gated so that
+# the workflow exists and is ready for the public flip but does not fail on
+# every dependabot PR. Once the repo is public, delete the `github.event.repository.private`
+# guard below and the workflow will enforce the high-severity gate automatically.
+
 on:
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: dependency-review-${{ github.ref }}
@@ -15,6 +22,7 @@ jobs:
   review:
     name: Review dependency changes
     runs-on: ubuntu-latest
+    if: github.event.repository.private == false || github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
