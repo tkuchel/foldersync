@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-04-09
+
+### Added
+- `.github/workflows/codeql.yml` running CodeQL `security-and-quality`
+  analysis on pushes to `main` and `develop`, on pull requests, and on a
+  weekly schedule.
+- `.github/workflows/dependency-review.yml` running
+  `actions/dependency-review-action` on pull requests with a
+  high-severity vulnerability gate and license and vulnerability checks.
+- CodeQL status badge in `README.md`.
+
+### Changed
+- `.github/workflows/ci.yml` now triggers on `develop` branch pushes as
+  well as `main`, adds `workflow_dispatch`, a `concurrency` group that
+  cancels superseded runs on the same ref, and explicit read permissions.
+- CI now caches `~/.nuget/packages` keyed on `*.csproj` and
+  `Directory.Build.props` hashes, and sets the standard
+  `DOTNET_CLI_TELEMETRY_OPTOUT`, `DOTNET_NOLOGO`, and
+  `DOTNET_SKIP_FIRST_TIME_EXPERIENCE` environment variables.
+- CI `dotnet test` step now collects `XPlat Code Coverage` and a TRX
+  logger. Test results are published via `dorny/test-reporter` and the
+  Cobertura coverage file is uploaded as a 14-day artifact. A short
+  coverage summary (line and branch percentages) is written to the
+  job step summary.
+- Removed the redundant "Validate JSON Report Shape" filtered test pass
+  from CI; those tests already run in the main `dotnet test` step.
+- Bumped project version to `1.0.4` in `Directory.Build.props`.
+
 ## [1.0.3] - 2026-04-09
 
 ### Added
@@ -121,7 +149,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI workflow `.github/workflows/ci.yml` with build, test, and publish smoke
   tests for both the service and tray on `windows-latest`.
 
-[Unreleased]: https://github.com/tkuchel/foldersync/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/tkuchel/foldersync/compare/v1.0.4...HEAD
+[1.0.4]: https://github.com/tkuchel/foldersync/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/tkuchel/foldersync/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/tkuchel/foldersync/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/tkuchel/foldersync/compare/v1.0.0...v1.0.1

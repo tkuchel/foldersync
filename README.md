@@ -1,6 +1,7 @@
 # FolderSync
 
 [![CI](https://github.com/tkuchel/foldersync/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tkuchel/foldersync/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/tkuchel/foldersync/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/tkuchel/foldersync/actions/workflows/codeql.yml)
 [![Release](https://img.shields.io/github/v/release/tkuchel/foldersync?include_prereleases&sort=semver)](https://github.com/tkuchel/foldersync/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
