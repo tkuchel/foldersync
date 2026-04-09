@@ -2,8 +2,9 @@
 
 ## Before You Tag
 
-1. Confirm the intended version and update [Directory.Build.props](C:/Users/terre/cowork-workspace/foldersync/Directory.Build.props).
-2. Review [README.md](C:/Users/terre/cowork-workspace/foldersync/README.md), [TODO.md](C:/Users/terre/cowork-workspace/foldersync/TODO.md), and deployment notes for anything that changed materially in the release.
+1. Confirm the intended version and update [Directory.Build.props](./Directory.Build.props).
+2. Review [README.md](./README.md), [TODO.md](./TODO.md), and deployment notes for anything that changed materially in the release.
+3. Move the `[Unreleased]` block in [CHANGELOG.md](./CHANGELOG.md) under the new version heading.
 3. Run:
 
 ```powershell
@@ -30,8 +31,8 @@ dotnet run --project src\FolderSync -- validate-deploy --target-dir C:\FolderSyn
 1. Confirm the release commit is the one you intended to ship.
 2. Confirm the `Release` GitHub Actions workflow completed successfully and attached both zip assets to the GitHub release.
 3. Download or inspect the published service and tray zip files from the GitHub release.
-4. If you are validating locally, run [Validate-ReleaseArtifacts.ps1](C:/Users/terre/cowork-workspace/foldersync/scripts/Validate-ReleaseArtifacts.ps1) against the produced zip files.
-5. If you are validating locally, run [Smoke-Test-ReleaseArtifacts.ps1](C:/Users/terre/cowork-workspace/foldersync/scripts/Smoke-Test-ReleaseArtifacts.ps1) against the produced zip files.
+4. If you are validating locally, run [Validate-ReleaseArtifacts.ps1](./scripts/Validate-ReleaseArtifacts.ps1) against the produced zip files.
+5. If you are validating locally, run [Smoke-Test-ReleaseArtifacts.ps1](./scripts/Smoke-Test-ReleaseArtifacts.ps1) against the produced zip files.
 6. Verify published service and tray executables start successfully in a clean environment.
 7. Smoke-test the operator path:
 

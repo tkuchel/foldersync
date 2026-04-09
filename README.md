@@ -1,5 +1,11 @@
 # FolderSync
 
+[![CI](https://github.com/tkuchel/foldersync/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tkuchel/foldersync/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/tkuchel/foldersync?include_prereleases&sort=semver)](https://github.com/tkuchel/foldersync/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
+[![Platform](https://img.shields.io/badge/platform-Windows-0078D6)](https://github.com/tkuchel/foldersync)
+
 FolderSync is a Windows-first one-way folder synchronization tool for keeping a destination folder in sync with a source folder.
 
 It supports:
@@ -88,7 +94,7 @@ If you run it via `dotnet run`, the `Start with Windows` option will point at th
 
 The application reads configuration from:
 
-- [appsettings.example.json](/T:/repos/foldersync/src/FolderSync/appsettings.example.json)
+- [appsettings.example.json](./src/FolderSync/appsettings.example.json)
 - An optional local `appsettings.json`
 - An optional custom file passed with `--config`
 
@@ -114,7 +120,7 @@ foldersync health --json
 foldersync validate-deploy --target-dir C:\FolderSync --skip-tests
 ```
 
-A practical operator reference for common runtime states lives in [TROUBLESHOOTING.md](C:/Users/terre/cowork-workspace/foldersync/TROUBLESHOOTING.md).
+A practical operator reference for common runtime states lives in [TROUBLESHOOTING.md](./TROUBLESHOOTING.md).
 
 The running service also persists runtime health to `foldersync-health.json` in the install directory.
 Control state and queued operator requests are persisted separately in `foldersync-control.json`.
@@ -215,7 +221,7 @@ dotnet test FolderSync.slnx --nologo
 
 ## Versioning
 
-- Shared version metadata for both binaries is defined in [Directory.Build.props](C:/Users/terre/cowork-workspace/foldersync/Directory.Build.props).
+- Shared version metadata for both binaries is defined in [Directory.Build.props](./Directory.Build.props).
 - `Version` and `InformationalVersion` should match the intended release tag, for example `1.0.1`.
 - `AssemblyVersion` and `FileVersion` should stay in four-part form, for example `1.0.1.0`.
 - When cutting a release, bump the project version first, build/test, then create the matching Git tag.
@@ -223,13 +229,13 @@ dotnet test FolderSync.slnx --nologo
 ## Releases
 
 - CI now smoke-tests `dotnet publish` for both the service and tray companion on Windows.
-- Tagged pushes such as `v1.0.1` now run [release.yml](C:/Users/terre/cowork-workspace/foldersync/.github/workflows/release.yml), which builds, tests, publishes, zips, and attaches both service and tray artifacts to a GitHub release.
-- The release workflow validates that the pushed tag matches the `Version` declared in [Directory.Build.props](C:/Users/terre/cowork-workspace/foldersync/Directory.Build.props) before publishing artifacts.
-- The packaged zip files are also checked by [Validate-ReleaseArtifacts.ps1](C:/Users/terre/cowork-workspace/foldersync/scripts/Validate-ReleaseArtifacts.ps1) so missing executables or runtime files fail the release.
-- The packaged executables are smoke-tested by [Smoke-Test-ReleaseArtifacts.ps1](C:/Users/terre/cowork-workspace/foldersync/scripts/Smoke-Test-ReleaseArtifacts.ps1), which validates the published service binary against a temp config and runs the tray in a headless `--smoke-test` mode.
+- Tagged pushes such as `v1.0.1` now run [release.yml](./.github/workflows/release.yml), which builds, tests, publishes, zips, and attaches both service and tray artifacts to a GitHub release.
+- The release workflow validates that the pushed tag matches the `Version` declared in [Directory.Build.props](./Directory.Build.props) before publishing artifacts.
+- The packaged zip files are also checked by [Validate-ReleaseArtifacts.ps1](./scripts/Validate-ReleaseArtifacts.ps1) so missing executables or runtime files fail the release.
+- The packaged executables are smoke-tested by [Smoke-Test-ReleaseArtifacts.ps1](./scripts/Smoke-Test-ReleaseArtifacts.ps1), which validates the published service binary against a temp config and runs the tray in a headless `--smoke-test` mode.
 - Local release validation should still include `dotnet test FolderSync.slnx --nologo` before tagging.
-- A short human release checklist lives in [RELEASE_CHECKLIST.md](C:/Users/terre/cowork-workspace/foldersync/RELEASE_CHECKLIST.md).
-- Operator troubleshooting guidance lives in [TROUBLESHOOTING.md](C:/Users/terre/cowork-workspace/foldersync/TROUBLESHOOTING.md).
+- A short human release checklist lives in [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md).
+- Operator troubleshooting guidance lives in [TROUBLESHOOTING.md](./TROUBLESHOOTING.md).
 
 The repo ignores generated output like `bin/`, `obj/`, logs, IDE state, and local Codex/Claude workspace files.
 
@@ -298,3 +304,20 @@ dotnet run --project src\FolderSync -- validate-deploy --target-dir C:\FolderSyn
 dotnet run --project src\FolderSync -- validate-deploy --target-dir C:\FolderSync --skip-tray
 dotnet run --project src\FolderSync -- validate-deploy --target-dir C:\FolderSync --configuration Release
 ```
+
+## Contributing
+
+Pull requests are welcome. Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for
+the branch model, build/test commands, and PR expectations, and follow the
+[Code of Conduct](./CODE_OF_CONDUCT.md).
+
+For release history see [CHANGELOG.md](./CHANGELOG.md).
+
+## Security
+
+If you discover a security issue, please follow the private disclosure process
+described in [SECURITY.md](./SECURITY.md) rather than opening a public issue.
+
+## License
+
+FolderSync is released under the [MIT License](./LICENSE).
