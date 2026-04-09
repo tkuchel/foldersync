@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 
 namespace FolderSync.Infrastructure;
 
@@ -6,6 +7,10 @@ public sealed record ProcessResult(int ExitCode, string StandardOutput, string S
 
 public interface IProcessRunner
 {
+    [SuppressMessage(
+        "Design",
+        "CA1068:CancellationToken parameters must come last",
+        Justification = "Trailing TimeSpan? parameter is an optional timeout override, not an operation parameter. Moving the CancellationToken would be a breaking signature change for an interface that is stable across the service and all tests.")]
     Task<ProcessResult> RunAsync(
         string executable,
         string arguments,

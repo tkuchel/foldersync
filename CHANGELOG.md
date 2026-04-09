@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-04-09
+
+### Added
+- `.editorconfig` with solution-wide formatting defaults, test-project
+  rule overrides, and documented severity tweaks for stylistic analyzers.
+- Package and source metadata in `Directory.Build.props`: `Authors`,
+  `Company`, `Product`, `Copyright`, `PackageLicenseExpression`,
+  `PackageProjectUrl`, `RepositoryUrl`, `RepositoryType`,
+  `PublishRepositoryUrl`, and `EmbedUntrackedSources` for SourceLink.
+- `Microsoft.SourceLink.GitHub` package reference (non-test projects only)
+  for debuggable release binaries.
+- `AnalysisLevel=latest`, `AnalysisMode=Recommended`, and
+  `EnforceCodeStyleInBuild` for consistent analyzer coverage.
+- `TreatWarningsAsErrors` is now enabled on CI builds (`CI=true`) so new
+  warnings block CI while local development remains unblocked mid-edit.
+- `coverlet.collector` package reference in `FolderSync.Tests.csproj` to
+  enable `dotnet test --collect:"XPlat Code Coverage"` coverage reports.
+
+### Fixed
+- `ReconciliationService` now implements `IDisposable` and disposes its
+  `SemaphoreSlim` run gate. `ProfilePipeline.Dispose` now chains the call,
+  fixing a semaphore leak when profile pipelines were recycled
+  (`CA1001`).
+- `FolderSync.Tray.TrayApplicationContext.ResolveInstallLocation` and
+  `PersistJson` are now `static` (`CA1822`).
+- Logging calls in `FolderSyncService` and `RuntimeHealthStore` now use
+  constant message templates so structured logging picks up parameter
+  names (`CA2254`).
+- `FolderSync.Tray.csproj` no longer hardcodes `Version=1.0.0`. It now
+  inherits the shared version from `Directory.Build.props`, so service
+  and tray assemblies stay in lockstep. Previous 1.0.1 and 1.0.2 tags
+  did not actually update the tray assembly version because of this.
+
+### Changed
+- Bumped project version to `1.0.3` in `Directory.Build.props`.
+- `IProcessRunner.RunAsync` suppresses `CA1068` locally with a
+  justification. Moving `CancellationToken` would require a breaking
+  signature change across the service and tests; the trailing
+  `TimeSpan? timeout` is a config-style parameter, not an operation
+  input.
+- `IWatcherService` suppresses `CA1716` locally with a justification.
+  `Stop()` is the conventional counterpart to `Start()` and the VB.NET
+  keyword conflict is not relevant to this project.
+
 ## [1.0.2] - 2026-04-09
 
 ### Added
@@ -77,7 +121,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI workflow `.github/workflows/ci.yml` with build, test, and publish smoke
   tests for both the service and tray on `windows-latest`.
 
-[Unreleased]: https://github.com/tkuchel/foldersync/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/tkuchel/foldersync/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/tkuchel/foldersync/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/tkuchel/foldersync/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/tkuchel/foldersync/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/tkuchel/foldersync/releases/tag/v1.0.0

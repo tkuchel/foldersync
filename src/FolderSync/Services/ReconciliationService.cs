@@ -12,7 +12,7 @@ public interface IReconciliationService
     Task SchedulePeriodicAsync(ChannelWriter<WatcherEvent> eventChannel, CancellationToken cancellationToken);
 }
 
-public sealed class ReconciliationService : IReconciliationService
+public sealed class ReconciliationService : IReconciliationService, IDisposable
 {
     private readonly IRobocopyService _robocopy;
     private readonly IDestinationRetentionService _retention;
@@ -108,5 +108,10 @@ public sealed class ReconciliationService : IReconciliationService
         {
             _logger.LogDebug("Periodic reconciliation stopped");
         }
+    }
+
+    public void Dispose()
+    {
+        _runGate.Dispose();
     }
 }

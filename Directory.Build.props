@@ -1,10 +1,43 @@
 <Project>
+
   <PropertyGroup>
-    <Version>1.0.2</Version>
-    <AssemblyVersion>1.0.2.0</AssemblyVersion>
-    <FileVersion>1.0.2.0</FileVersion>
-    <InformationalVersion>1.0.2</InformationalVersion>
+    <!-- Version metadata is shared across all projects in the solution. -->
+    <Version>1.0.3</Version>
+    <AssemblyVersion>1.0.3.0</AssemblyVersion>
+    <FileVersion>1.0.3.0</FileVersion>
+    <InformationalVersion>1.0.3</InformationalVersion>
+
+    <!-- Package / assembly metadata -->
+    <Authors>Terrence Kuchel (DropBear)</Authors>
+    <Company>FolderSync</Company>
+    <Product>FolderSync</Product>
+    <Copyright>Copyright (c) 2026 Terrence Kuchel (DropBear)</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/tkuchel/foldersync</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/tkuchel/foldersync.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+
+    <!-- Deterministic, reproducible builds -->
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+
+    <!-- Code quality guardrails -->
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+
+    <!-- Only block CI on warnings. Local dev keeps them as warnings so that
+         in-progress changes are not blocked mid-edit. -->
+    <TreatWarningsAsErrors Condition="'$(CI)' == 'true'">true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors Condition="'$(CI)' == 'true'">NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
   </PropertyGroup>
+
+  <!-- SourceLink for debuggable release binaries. Test projects opt out. -->
+  <ItemGroup Condition="'$(IsTestProject)' != 'true'">
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
+  </ItemGroup>
+
 </Project>

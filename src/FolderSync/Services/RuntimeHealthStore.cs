@@ -412,7 +412,7 @@ public sealed class RuntimeHealthStore : IRuntimeHealthStore
 
         if (!string.Equals(profile.AlertMessage, newMessage, StringComparison.Ordinal))
         {
-            _logger.LogWarning(newMessage);
+            _logger.LogWarning("Profile {Profile} alert: {Message}", profile.Name, newMessage);
             profile.LastAlertUtc = _clock.UtcNow;
             _alertNotifier.Publish(new AlertNotification
             {

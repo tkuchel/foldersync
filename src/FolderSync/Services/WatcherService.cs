@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Threading.Channels;
 using FolderSync.Infrastructure;
 using FolderSync.Models;
@@ -6,6 +7,10 @@ using Microsoft.Extensions.Options;
 
 namespace FolderSync.Services;
 
+[SuppressMessage(
+    "Naming",
+    "CA1716:Identifiers should not match keywords",
+    Justification = "Stop() is the conventional counterpart to Start() for this file-watcher abstraction. The type is only consumed from C#; the VB.NET keyword conflict is not relevant to this project.")]
 public interface IWatcherService : IDisposable
 {
     void Start(ChannelWriter<WatcherEvent> eventChannel);
