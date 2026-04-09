@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-04-09
+
+First fully public release. The repository was flipped from private to
+public between `v1.0.7` and this tag, so `v1.0.8` is the first tag that
+actually runs the gated `attest-build-provenance` and
+`dependency-review` steps added in `v1.0.5` and `v1.0.6`.
+
+### Added
+- New `Verifying Downloads` section in `README.md` documenting the
+  SHA256 checksums, CycloneDX SBOMs, and signed build provenance
+  attestations attached to every release, with a ready-to-paste
+  `Get-FileHash` and `gh attestation verify` snippet.
+
+### Changed
+- Bumped project version to `1.0.8` in `Directory.Build.props`.
+
 ## [1.0.7] - 2026-04-09
 
 ### Fixed
@@ -225,7 +241,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI workflow `.github/workflows/ci.yml` with build, test, and publish smoke
   tests for both the service and tray on `windows-latest`.
 
-[Unreleased]: https://github.com/tkuchel/foldersync/compare/v1.0.7...HEAD
+[Unreleased]: https://github.com/tkuchel/foldersync/compare/v1.0.8...HEAD
+[1.0.8]: https://github.com/tkuchel/foldersync/compare/v1.0.7...v1.0.8
 [1.0.7]: https://github.com/tkuchel/foldersync/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/tkuchel/foldersync/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/tkuchel/foldersync/compare/v1.0.4...v1.0.5

@@ -306,6 +306,35 @@ dotnet run --project src\FolderSync -- validate-deploy --target-dir C:\FolderSyn
 dotnet run --project src\FolderSync -- validate-deploy --target-dir C:\FolderSync --configuration Release
 ```
 
+## Verifying Downloads
+
+Every tagged GitHub release ships with verification artifacts alongside
+the `foldersync-service-<tag>.zip` and `foldersync-tray-<tag>.zip`:
+
+- **`foldersync-<tag>-SHA256SUMS.txt`** — SHA256 checksums for both zips.
+- **`foldersync-service-<tag>-sbom.cdx.json`** and
+  **`foldersync-tray-<tag>-sbom.cdx.json`** — CycloneDX software bill of
+  materials for each published output.
+- A **build provenance attestation** (SLSA v1, signed via GitHub OIDC).
+
+Verify a download before running it:
+
+```powershell
+# Checksums
+Get-Content .\foldersync-<tag>-SHA256SUMS.txt
+(Get-FileHash .\foldersync-service-<tag>.zip -Algorithm SHA256).Hash.ToLower()
+(Get-FileHash .\foldersync-tray-<tag>.zip    -Algorithm SHA256).Hash.ToLower()
+
+# Build provenance
+gh attestation verify .\foldersync-service-<tag>.zip --owner tkuchel
+gh attestation verify .\foldersync-tray-<tag>.zip    --owner tkuchel
+```
+
+Attestation verification proves that the zip was built by the
+`.github/workflows/release.yml` workflow in this repository, at the commit
+matching the tag, on a GitHub-hosted runner. No additional code-signing
+certificate is required.
+
 ## Contributing
 
 Pull requests are welcome. Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for
