@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-04-09
+
+### Added
+- `.github/workflows/release.yml` now generates a `SHA256SUMS.txt` file
+  for the service and tray zips and attaches it to the GitHub release.
+- CycloneDX SBOMs are generated for both published outputs via
+  `anchore/sbom-action` and attached to the release as
+  `foldersync-service-<tag>-sbom.cdx.json` and
+  `foldersync-tray-<tag>-sbom.cdx.json`.
+- Build provenance attestations are produced for both release zips via
+  `actions/attest-build-provenance`, giving signed, OIDC-backed
+  verification of where and how the binaries were built (no code
+  signing certificate required).
+- Release notes for each tag are now extracted from the matching
+  `## [x.y.z]` heading in `CHANGELOG.md` and used as the GitHub release
+  body. Auto-generated commit-based notes are appended after the
+  curated section.
+- `workflow_dispatch` now accepts a `dry_run` boolean input that builds,
+  validates, smoke-tests, and uploads artifacts without publishing a
+  GitHub release or creating attestations.
+
+### Changed
+- Release workflow now sets the standard
+  `DOTNET_CLI_TELEMETRY_OPTOUT`, `DOTNET_NOLOGO`, and
+  `DOTNET_SKIP_FIRST_TIME_EXPERIENCE` environment variables, caches
+  `~/.nuget/packages`, uses `fetch-depth: 0` so tags and history are
+  available for CHANGELOG extraction, and declares explicit
+  `contents: write`, `id-token: write`, and `attestations: write`
+  permissions.
+- `upload-artifact` now bundles the zips, checksums, and both SBOMs
+  under a single `foldersync-release-<tag>` artifact.
+- Bumped project version to `1.0.5` in `Directory.Build.props`.
+
 ## [1.0.4] - 2026-04-09
 
 ### Added
@@ -149,7 +182,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI workflow `.github/workflows/ci.yml` with build, test, and publish smoke
   tests for both the service and tray on `windows-latest`.
 
-[Unreleased]: https://github.com/tkuchel/foldersync/compare/v1.0.4...HEAD
+[Unreleased]: https://github.com/tkuchel/foldersync/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/tkuchel/foldersync/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/tkuchel/foldersync/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/tkuchel/foldersync/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/tkuchel/foldersync/compare/v1.0.1...v1.0.2
